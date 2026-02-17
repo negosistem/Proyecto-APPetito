@@ -1,0 +1,16 @@
+{
+    "name": "proyect-appetito",
+    "version": "1.0.0",
+    "description": "Sistema de gestión de restaurantes APPetito",
+    "scripts": {
+        "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+        "start:backend": "cd APPetito2.0 && .\\venv\\Scripts\\activate.bat && uvicorn app.main:app --reload --port 8000",
+        "start:frontend": "cd \"Material prototito appetito\" && npm run dev",
+        "install:all": "concurrently \"npm run install:backend\" \"npm run install:frontend\"",
+        "install:backend": "cd APPetito2.0 && .\\venv\\Scripts\\activate.bat && pip install -r requirements.txt",
+        "install:frontend": "cd \"Material prototito appetito\" && npm install"
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    }
+}

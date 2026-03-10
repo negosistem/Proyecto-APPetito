@@ -5,9 +5,9 @@ from app.db.session import Base
 import enum
 
 class PaymentMethod(str, enum.Enum):
-    CASH = "cash"
-    CARD = "card"
-    TRANSFER = "transfer"
+    CASH = "CASH"
+    CARD = "CARD"
+    TRANSFER = "TRANSFER"
 
 class Payment(Base):
     __tablename__ = "payments"

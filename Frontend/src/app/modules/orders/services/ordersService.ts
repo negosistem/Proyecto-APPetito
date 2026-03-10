@@ -13,7 +13,10 @@ export interface Order {
     id: number;
     table_id: number;
     user_id: number;
-    status: 'Abierto' | 'En Preparación' | 'Entregado' | 'Cerrado' | 'Cancelado';
+    status: 'Abierto' | 'En Preparación' | 'Entregado' | 'Cerrado' | 'Cancelado' | 'new' | 'accepted' | 'preparing' | 'ready' | 'served' | 'pending' | 'paid';
+    subtotal?: number;
+    tax?: number;
+    tip?: number;
     total: number;
     customer_name?: string | null;
     created_at: string;
@@ -36,7 +39,7 @@ export const ordersService = {
      * Create a new order for a table
      */
     async createOrder(data: OrderCreate): Promise<Order> {
-        return apiClient.post<Order>('/api/orders', data);
+        return apiClient.post<Order>('/api/orders/', data);
     },
 
     /**
@@ -44,6 +47,13 @@ export const ordersService = {
      */
     async getActiveOrder(tableId: number): Promise<Order> {
         return apiClient.get<Order>(`/api/orders/table/${tableId}/active`);
+    },
+
+    /**
+     * Get full order details (for PaymentModal)
+     */
+    async getOrderDetails(orderId: number): Promise<Order> {
+        return apiClient.get<Order>(`/api/orders/${orderId}/details`);
     },
 
     /**

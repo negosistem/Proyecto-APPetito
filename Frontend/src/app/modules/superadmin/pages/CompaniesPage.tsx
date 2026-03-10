@@ -12,10 +12,10 @@ import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { CompanyFormModal } from '../components/CompanyFormModal';
 import { SuspendCompanyModal } from '../components/SuspendCompanyModal';
+import { useSuperAdmin } from '../context/SuperAdminContext';
 import {
     Plus,
     Search,
-    Eye,
     Edit,
     Ban,
     CheckCircle,
@@ -44,9 +44,16 @@ export default function CompaniesPage() {
     const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
 
     const navigate = useNavigate();
+    const { registerRefreshFn, openCreateRestaurant } = useSuperAdmin();
 
     useEffect(() => {
         loadCompanies();
+    }, []);
+
+    // Registrar loadCompanies en el contexto para que el botón del layout
+    // pueda refrescar la lista tras crear un restaurante desde cualquier página.
+    useEffect(() => {
+        registerRefreshFn(loadCompanies);
     }, []);
 
     const loadCompanies = async () => {
@@ -127,9 +134,9 @@ export default function CompaniesPage() {
     };
 
     const getMRR = (company: Company) => {
-        if (company.max_tables > 50) return '$599';
-        if (company.max_tables > 20) return '$299';
-        return '$99';
+        if (company.max_tables > 50) return '599';
+        if (company.max_tables > 20) return '299';
+        return '99';
     };
 
     const getNextPayment = (dateStr: string) => {
@@ -154,12 +161,18 @@ export default function CompaniesPage() {
                 </div>
                 <div className="flex gap-3">
                     <button
-                        className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors font-medium shadow-sm shadow-orange-200"
+                        onClick={openCreateRestaurant}
+                        className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm shadow-indigo-200"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Nuevo Restaurante
+                    </button>
+                    <button
+                        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors font-medium"
                     >
                         <Download className="w-4 h-4" />
                         Exportar
                     </button>
-                    {/* Botón Nuevo Restaurante ya está en el Header Global, pero lo mantenemos por si acaso o lo quitamos */}
                 </div>
             </div>
 

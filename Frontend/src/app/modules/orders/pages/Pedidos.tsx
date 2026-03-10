@@ -11,11 +11,19 @@ import { PaymentModal } from '../components/PaymentModal';
 import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { Receipt as ReceiptData } from '../../payments/services/paymentService';
 import { CustomerCreateModal } from '../components/CustomerCreateModal';
+import { OrderDetailModal } from '../components/OrderDetailModal';
+import { formatNumber } from '@/lib/formatNumber';
 
 export default function Pedidos() {
   const [pedidos, setPedidos] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const limit = 15;
 
   // Data for creation modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +49,11 @@ export default function Pedidos() {
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
 
+  // Order Detail States
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState<number | null>(null);
+
   // New Order State
   const [newOrder, setNewOrder] = useState({
     customer_name: '',
@@ -49,18 +62,44 @@ export default function Pedidos() {
     items: [] as any[],
     apply_tip: false
   });
+  const [isParaLlevar, setIsParaLlevar] = useState(false);
+
+  // ── ESC to close modal ──────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isModalOpen) {
+        setIsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen]);
+
+  // ── Block body scroll when modal is open ───────────
+  useEffect(() => {
+    if (isModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isModalOpen]);
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [ordersData, tablesData, productsData, customersData, companySettings] = await Promise.all([
-        orderService.getOrders(),
+      const [ordersResponse, tablesData, productsData, customersData, companySettings] = await Promise.all([
+        orderService.getOrders(currentPage, limit),
         tableService.getTables(),
         menuService.getProducts(),
         customerService.getCustomers(),
         settingsService.getCompanySettings()
       ]);
-      setPedidos(ordersData);
+
+      setPedidos(ordersResponse.items);
+      setTotalPages(ordersResponse.pages);
+      setTotalOrders(ordersResponse.total);
+
       setTables(tablesData);
       setProducts(productsData);
       setCustomers(customersData || []);
@@ -78,7 +117,7 @@ export default function Pedidos() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentPage]);
 
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,7 +137,7 @@ export default function Pedidos() {
       const payload = {
         customer_name: newOrder.customer_name || null,
         customer_id: newOrder.customer_id,
-        table_id: newOrder.table_id === 'null' ? null : parseInt(newOrder.table_id),
+        table_id: (newOrder.table_id === 'null' || newOrder.table_id === 'para_llevar') ? null : parseInt(newOrder.table_id),
         items: newOrder.items.map((item: any) => ({
           product_id: item.id,
           quantity: item.quantity,
@@ -110,10 +149,12 @@ export default function Pedidos() {
       toast.success('✅ Orden creada y enviada a cocina');
       setIsModalOpen(false);
       setNewOrder({ customer_name: '', customer_id: null, table_id: 'null', items: [], apply_tip: false });
+      setIsParaLlevar(false);
       setSelectedCategory('Todas');
       fetchData();
-    } catch (error) {
-      toast.error('Error al crear el pedido');
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || 'Error al crear el pedido';
+      toast.error(detail);
     } finally {
       setIsSubmitting(false);
     }
@@ -186,9 +227,23 @@ export default function Pedidos() {
     setShowCustomerResults(false);
   };
 
+  const handleOrderClick = async (order: Order) => {
+    try {
+      setIsLoadingDetail(order.id);
+      const detail = await orderService.getOrder(order.id);
+      setSelectedOrder(detail);
+      setIsOrderDetailModalOpen(true);
+    } catch (error) {
+      toast.error('Error al obtener el detalle del pedido');
+    } finally {
+      setIsLoadingDetail(null);
+    }
+  };
+
+  // Local Search (within the current page)
   const filteredPedidos = pedidos.filter(pedido =>
     pedido.id.toString().includes(searchTerm) ||
-    pedido.customer_name?.toLowerCase().includes(searchTerm.toLowerCase())
+    (pedido.customer_name?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
   const filteredProducts = products
@@ -201,6 +256,14 @@ export default function Pedidos() {
   const filteredCustomers = customers.filter(c =>
     c.name.toLowerCase().includes(customerSearch.toLowerCase())
   );
+
+  // Sort tables: available first (ascending), occupied last (ascending within their group)
+  const sortedTables = [...tables].sort((a, b) => {
+    const aOccupied = a.status === 'ocupada';
+    const bOccupied = b.status === 'ocupada';
+    if (aOccupied !== bOccupied) return aOccupied ? 1 : -1; // occupied goes to bottom
+    return Number(a.number) - Number(b.number);              // ascending within each group
+  });
 
   // Calculate order totals
   const subtotal = newOrder.items.reduce((acc: number, i: any) => acc + (i.price * i.quantity), 0);
@@ -274,8 +337,8 @@ export default function Pedidos() {
                   <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Fecha</th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Cliente</th>
                   <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Mesa</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Items</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Total</th>
+                  <th className="py-3 px-4 text-sm font-semibold text-slate-700 text-right">Items</th>
+                  <th className="py-3 px-4 text-sm font-semibold text-slate-700 text-right">Total</th>
                   <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Estado</th>
                 </tr>
               </thead>
@@ -286,7 +349,9 @@ export default function Pedidos() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: index * 0.05 }}
-                    className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                    onClick={() => handleOrderClick(pedido)}
+                    className={`border-b border-slate-100 transition-colors cursor-pointer ${isLoadingDetail === pedido.id ? 'opacity-50 bg-slate-100 pointer-events-none' : 'hover:bg-slate-50'
+                      }`}
                   >
                     <td className="py-3 px-4 text-sm font-medium text-slate-900">#{pedido.id.toString().padStart(4, '0')}</td>
                     <td className="py-3 px-4 text-sm text-slate-600">{new Date(pedido.created_at).toLocaleString()}</td>
@@ -294,9 +359,9 @@ export default function Pedidos() {
                     <td className="py-3 px-4 text-sm text-slate-700">
                       {pedido.table_id ? `Mesa ${tables.find(t => t.id === pedido.table_id)?.number || pedido.table_id}` : 'Para llevar'}
                     </td>
-                    <td className="py-3 px-4 text-sm text-slate-700">{pedido.items.length} items</td>
-                    <td className="py-3 px-4 text-sm font-medium text-slate-900">${pedido.total.toLocaleString()}</td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-3 px-4 text-sm text-slate-700 text-right">{pedido.items.length} items</td>
+                    <td className="py-3 px-4 text-sm font-medium text-slate-900 text-right">{formatNumber(pedido.total)}</td>
+                    <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">
                         {pedido.status === 'served' && (
                           <button
@@ -340,6 +405,35 @@ export default function Pedidos() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {!isLoading && totalPages > 1 && (
+            <div className="flex items-center justify-between px-6 py-4 bg-white border-t border-slate-200">
+              <div className="text-sm text-slate-500">
+                Mostrando <span className="font-medium">{pedidos.length}</span> de <span className="font-medium">{totalOrders}</span> pedidos
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Anterior
+                </button>
+                <div className="flex items-center gap-1 px-2">
+                  <span className="text-sm font-medium text-slate-900">Página {currentPage}</span>
+                  <span className="text-sm text-slate-500">de {totalPages}</span>
+                </div>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -434,14 +528,32 @@ export default function Pedidos() {
                     onChange={(e) => setNewOrder({ ...newOrder, table_id: e.target.value })}
                     className="w-full p-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-white"
                   >
-                    <option value="null">🥡 Para llevar</option>
-                    {tables.map(table => (
-                      <option key={table.id} value={table.id}>
-                        Mesa {table.number} {table.status === 'ocupada' ? '(Ocupada)' : ''}
-                      </option>
-                    ))}
+                    {/* ① Default — no table selected */}
+                    <option value="null">— Vacía —</option>
+
+                    {/* ② Para llevar */}
+                    <option value="para_llevar">🥡 Para llevar</option>
+
+                    {/* ② Available tables sorted 1→30 */}
+                    {sortedTables
+                      .filter(t => t.status !== 'ocupada')
+                      .map(table => (
+                        <option key={table.id} value={table.id}>
+                          Mesa {table.number}
+                        </option>
+                      ))}
+
+                    {/* ③ Occupied tables sorted 1→30 — disabled */}
+                    {sortedTables
+                      .filter(t => t.status === 'ocupada')
+                      .map(table => (
+                        <option key={table.id} value={table.id} disabled>
+                          Mesa {table.number}  (Ocupada)
+                        </option>
+                      ))}
                   </select>
                 </div>
+
               </div>
 
               {/* Main Columns Content */}
@@ -487,7 +599,7 @@ export default function Pedidos() {
                         <div className="font-semibold text-slate-900 group-hover:text-orange-600 text-sm line-clamp-2 leading-tight" title={product.name}>{product.name}</div>
                         <div className="flex items-center justify-between mt-1">
                           <div className="text-xs text-slate-400 truncate max-w-[60%]">{product.category}</div>
-                          <div className="font-bold text-slate-700 text-sm">${product.price}</div>
+                          <div className="font-bold text-slate-700 text-sm text-right">{formatNumber(product.price)}</div>
                         </div>
                       </button>
                     ))}
@@ -526,7 +638,7 @@ export default function Pedidos() {
                                 <Plus className="w-3 h-3" />
                               </button>
                             </div>
-                            <span className="font-bold text-slate-800 text-sm">${(item.price * item.quantity).toFixed(2)}</span>
+                            <span className="font-bold text-slate-800 text-sm text-right">{formatNumber(item.price * item.quantity)}</span>
                           </div>
                         </div>
                       ))
@@ -537,22 +649,22 @@ export default function Pedidos() {
                   <div className="pt-4 space-y-2 mt-2 border-t border-slate-200 bg-slate-50">
                     <div className="flex justify-between items-center text-sm text-slate-600">
                       <span>Subtotal</span>
-                      <span className="font-medium">${subtotal.toFixed(2)}</span>
+                      <span className="font-medium text-right">{formatNumber(subtotal)}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm text-slate-600">
                       <span>Impuesto ({taxRate}%)</span>
-                      <span className="font-medium">${tax.toFixed(2)}</span>
+                      <span className="font-medium text-right">{formatNumber(tax)}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm text-slate-600">
                       <label className="flex items-center gap-2 cursor-pointer hover:text-slate-800">
                         <input type="checkbox" checked={newOrder.apply_tip} onChange={e => setNewOrder({ ...newOrder, apply_tip: e.target.checked })} className="rounded text-orange-500 focus:ring-orange-500" />
                         <span>Propina (10%)</span>
                       </label>
-                      <span className="font-medium">${tip.toFixed(2)}</span>
+                      <span className="font-medium text-right">{formatNumber(tip)}</span>
                     </div>
                     <div className="flex justify-between items-center text-xl font-bold text-slate-900 py-2">
                       <span>Total</span>
-                      <span>${total.toFixed(2)}</span>
+                      <span className="text-right">{formatNumber(total)}</span>
                     </div>
 
                     <button
@@ -576,6 +688,7 @@ export default function Pedidos() {
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
         order={selectedOrderForPayment}
+        tableNumber={selectedOrderForPayment?.table_id}
         onSuccess={handlePaymentSuccess}
       />
 
@@ -589,6 +702,15 @@ export default function Pedidos() {
         isOpen={isCustomerModalOpen}
         onClose={() => setIsCustomerModalOpen(false)}
         onCustomerCreated={handleCustomerCreated}
+      />
+
+      <OrderDetailModal
+        isOpen={isOrderDetailModalOpen}
+        order={selectedOrder}
+        onClose={() => {
+          setIsOrderDetailModalOpen(false);
+          setSelectedOrder(null);
+        }}
       />
     </div>
   );

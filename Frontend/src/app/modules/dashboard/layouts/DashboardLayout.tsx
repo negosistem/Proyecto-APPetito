@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '@/app/modules/auth/context/AuthContext';
@@ -54,6 +54,21 @@ export default function DashboardLayout() {
         navigate('/login');
     };
 
+    // Expose sidebar width as a CSS variable so any child (e.g. KitchenKanban) can use it.
+    // On mobile there is no sidebar, so we set 0px via a resize observer.
+    useEffect(() => {
+        const update = () => {
+            const isMobile = window.innerWidth < 1024; // lg breakpoint
+            document.documentElement.style.setProperty(
+                '--sidebar-w',
+                isMobile ? '0px' : sidebarOpen ? '256px' : '80px'
+            );
+        };
+        update();
+        window.addEventListener('resize', update);
+        return () => window.removeEventListener('resize', update);
+    }, [sidebarOpen]);
+
     const isActiveRoute = (path: string) => {
         if (path === '/dashboard') {
             return location.pathname === path;
@@ -61,13 +76,50 @@ export default function DashboardLayout() {
         return location.pathname.startsWith(path);
     };
 
-    // Filter navigation items based on user role
+    // Route guard: Redirect if user tries to access a module they don't have permission for
+    useEffect(() => {
+        if (!user) return;
+        if (user.role === 'admin' || user.role === 'super_admin') return;
+
+        const pathSegments = location.pathname.split('/');
+        const moduleName = pathSegments[2]; // e.g., '/dashboard/cocina' -> index 2 is 'cocina'
+
+        if (moduleName && moduleName !== 'dashboard') {
+            // Not a base dashboard route, check module permission
+            if (!user.modules || !Array.isArray(user.modules) || !user.modules.includes(moduleName)) {
+                navigate('/dashboard', { replace: true });
+            }
+        }
+    }, [location.pathname, user, navigate]);
+
+    // Filter navigation items based on user role and assigned modules
     const filteredNavItems = navItems.filter(item => {
         // Hide Staff menu for non-admin users
         if (item.path === '/dashboard/staff' && user?.role !== 'admin') {
             return false;
         }
-        return true;
+
+        // Check if the user is an admin or super_admin, they have access to everything
+        if (user?.role === 'admin' || user?.role === 'super_admin') {
+            return true;
+        }
+
+        // For other users, check if they have specific module access
+        // Extract the module name from the path (e.g., '/dashboard/cocina' -> 'cocina')
+        const moduleName = item.path.split('/').pop() || '';
+
+        // Allowed default paths for everyone
+        if (moduleName === 'dashboard') {
+            return true;
+        }
+
+        // If the user has assigned modules, check if this module is in their list
+        if (user?.modules && Array.isArray(user.modules) && user.modules.includes(moduleName)) {
+            return true;
+        }
+
+        // If not explicitly granted, hide the menu item
+        return false;
     });
 
     return (
@@ -272,7 +324,7 @@ export default function DashboardLayout() {
                 className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'
                     }`}
             >
-                <div className="p-4 lg:p-8 pt-20 lg:pt-8">
+                <div className="p-4 lg:p-8 pt-20 lg:pt-8 min-h-screen">
                     <Outlet />
                 </div>
             </main>

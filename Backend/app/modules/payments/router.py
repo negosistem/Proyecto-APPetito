@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.order import Order, OrderStatus
-from app.models.payment import Payment
+from app.models.payment import Payment, PaymentMethod
 from app.models.table import Table, TableStatus
 from .schemas import PaymentCreate, PaymentResponse, ReceiptRead, ReceiptItem
 
@@ -58,6 +58,9 @@ def generate_thermal_receipt(data: dict) -> io.BytesIO:
     c.drawString(5 * mm, y, f"Fecha: {data['date']}")
     y -= 3 * mm
     c.drawString(5 * mm, y, f"Mesa: {data['table']}")
+    y -= 3 * mm
+    customer_name = data.get('customer_name') or 'Consumidor Final'
+    c.drawString(5 * mm, y, f"Cliente: {customer_name[:20]}")
     y -= 3 * mm
     c.drawString(5 * mm, y, f"Atendio: {data['waiter']}")
     y -= 5 * mm
@@ -158,14 +161,21 @@ def generate_pdf_receipt(data: dict) -> io.BytesIO:
     y = height - 20 * mm
     c.setFont("Helvetica-Bold", 16)
     c.drawCentredString(width/2, y, "RESTAURANTE APPETITO - RECIBO DE PAGO")
-    y -= 10 * mm
+    y -= 8 * mm
     
     c.setFont("Helvetica", 10)
+    c.drawCentredString(width/2, y, "Calle Principal #123, Santo Domingo, RD | Tel: (809) 555-1234")
+    y -= 12 * mm
+
     c.drawString(20 * mm, y, f"Factura: {data['invoice_number']}")
     c.drawRightString(width - 20 * mm, y, f"Fecha: {data['date']}")
     y -= 5 * mm
-    c.drawString(20 * mm, y, f"Mesa: {data['table']}")
-    c.drawRightString(width - 20 * mm, y, f"Atendió: {data['waiter']}")
+    customer_name = data.get('customer_name') or 'Consumidor Final'
+    c.drawString(20 * mm, y, f"Cliente: {customer_name}")
+    c.drawRightString(width - 20 * mm, y, f"Mesa: {data['table']}")
+    y -= 5 * mm
+    c.drawString(20 * mm, y, f"Atendió: {data['waiter']}")
+    c.drawRightString(width - 20 * mm, y, f"Cajero: {data.get('cashier', 'N/A')}")
     y -= 10 * mm
     
     # Table Header
@@ -214,60 +224,132 @@ def generate_pdf_receipt(data: dict) -> io.BytesIO:
     return buffer
 
 def generate_html_receipt(data: dict) -> str:
-    """Genera HTML para vista previa"""
-    items_html = "".join([
-        f"<tr><td>{item['quantity']}x {item['name']}</td><td style='text-align:right'>${item['price']:.2f}</td><td style='text-align:right'>${item['subtotal']:.2f}</td></tr>"
-        + (f"<tr><td colspan='3' style='font-size:11px;color:#666;padding-left:15px'>({item['notes']})</td></tr>" if item.get('notes') else "")
-        for item in data['items']
-    ])
+    """Genera HTML para vista previa en formato de Ticket Térmico POS (58mm/80mm)"""
     
-    tip_row = f"<tr><td colspan='2'>Propina:</td><td style='text-align:right'>${data['tip']:.2f}</td></tr>" if data['tip'] > 0 else ""
-    change_html = f"<tr><td colspan='2'>Recibido:</td><td style='text-align:right'>${data['amount_received']:.2f}</td></tr><tr><td colspan='2'><strong>Cambio:</strong></td><td style='text-align:right;color:green'><strong>${data['change']:.2f}</strong></td></tr>" if data.get('change', 0) > 0 else ""
+    # Custom alignment helper functions
+    def padLeft(val, length):
+        s = str(val)
+        return s if len(s) >= length else " " * (length - len(s)) + s
+        
+    def padRight(val, length):
+        s = str(val)
+        return s if len(s) >= length else s + " " * (length - len(s))
 
-    return f"""
+    items_html = ""
+    max_name_len = 14
+    for item in data['items']:
+        name = item['name'][:max_name_len]
+        qty = padLeft(str(item['quantity']), 2)
+        price = padLeft(f"${item['price']:.2f}", 8)
+        sub = padLeft(f"${item['subtotal']:.2f}", 9)
+        
+        items_html += f"{padRight(name, max_name_len)} {qty} x {price} {sub}\\n"
+        if item.get('notes'):
+            items_html += f"  ({item['notes'][:25]})\\n"
+
+    change_html = f"\\nRecibido:              ${data['amount_received']:.2f}\\nCambio:                ${data['change']:.2f}" if data.get('change', 0) > 0 else ""
+    tip_html = f"\\nPropina:               ${data['tip']:.2f}" if data['tip'] > 0 else ""
+
+    html_content = f"""
     <!DOCTYPE html>
-    <html>
+    <html lang="es">
     <head>
         <meta charset="UTF-8">
+        <title>Recibo {data['invoice_number']}</title>
         <style>
-            body {{ font-family: 'Courier New', monospace; max-width: 400px; margin: 20px auto; padding: 20px; border: 1px solid #ccc; }}
-            .header {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
-            th {{ border-bottom: 1px solid #000; text-align: left; }}
-            .totals {{ border-top: 2px solid #000; margin-top: 10px; padding-top: 10px; }}
-            .grand-total {{ font-size: 1.2em; font-weight: bold; border-top: 1px double #000; }}
-            @media print {{ .no-print {{ display: none; }} }}
+            @media print {{
+                @page {{ margin: 0; }}
+                body {{ margin: 0; padding: 0; }}
+                .no-print {{ display: none !important; }}
+            }}
+            body {{ 
+                font-family: 'Courier New', Courier, monospace; 
+                font-size: 13px; 
+                line-height: 1.2;
+                color: #000; 
+                width: 300px; /* Thermal width max ~80mm */
+                margin: 0 auto; 
+                padding: 15px; 
+                background: #fff;
+            }}
+            .center {{ text-align: center; }}
+            .bold {{ font-weight: bold; }}
+            .text-divider {{
+                white-space: pre;
+                text-align: center;
+                margin: 4px 0;
+            }}
+            pre {{
+                margin: 0;
+                font-family: inherit;
+                font-size: inherit;
+                white-space: pre-wrap;
+            }}
+            h2 {{
+                font-size: 20px;
+                text-transform: uppercase;
+                margin: 0 0 5px 0;
+                font-weight: 900;
+                letter-spacing: 1px;
+            }}
+            .header-info {{ font-size: 11px; margin-bottom: 8px; }}
+            .footer-info {{ font-size: 11px; margin-top: 15px; text-align: center; }}
+            .btn-print {{
+                width: 100%;
+                padding: 15px;
+                background: #1e293b;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                margin-bottom: 25px;
+                font-weight: bold;
+                font-size: 14px;
+            }}
         </style>
     </head>
     <body onload="window.focus()">
-        <button class="no-print" onclick="window.print()" style="width:100%;padding:10px;background:#ff6b00;color:white;border:none;border-radius:5px;cursor:pointer;margin-bottom:20px">🖨️ IMPRIMIR RECIBO</button>
-        <div class="header">
-            <h3>RESTAURANTE APPETITO</h3>
-            <p>Calle Principal #123<br>Tel: (809) 555-1234</p>
+        <button class="no-print btn-print" onclick="window.print()">🖨️ IMPRIMIR RECIBO</button>
+        
+        <div class="center">
+            <h2>APPetito</h2>
+            <div class="header-info">
+                Calle Principal #123<br>
+                Santo Domingo, RD<br>
+                Tel: (809) 555-1234
+            </div>
+            <div class="bold" style="margin-top: 5px;">RECIBO DE PAGO</div>
+            <div>{data['date']}</div>
         </div>
-        <p><strong>Factura:</strong> {data['invoice_number']}<br>
-           <strong>Fecha:</strong> {data['date']}<br>
-           <strong>Mesa:</strong> {data['table']}<br>
-           <strong>Atendió:</strong> {data['waiter']}</p>
-        <table>
-            <thead><tr><th>Producto</th><th style="text-align:right">P.Unit</th><th style="text-align:right">Total</th></tr></thead>
-            <tbody>{items_html}</tbody>
-        </table>
-        <table class="totals">
-            <tr><td colspan="2">Subtotal:</td><td style="text-align:right">${data['subtotal']:.2f}</td></tr>
-            <tr><td colspan="2">Impuesto (18%):</td><td style="text-align:right">${data['tax']:.2f}</td></tr>
-            <tr class="grand-total"><td colspan="2">TOTAL:</td><td style="text-align:right">${(data['subtotal'] + data['tax']):.2f}</td></tr>
-            {tip_row}
-            {"<tr style='font-size:1.1em;font-weight:bold'><td colspan='2'>TOTAL A PAGAR:</td><td style='text-align:right'>$" + f"{data['total']:.2f}" + "</td></tr>" if data['tip'] > 0 else ""}
-            <tr><td colspan="3" style="padding-top:10px"><strong>Método:</strong> {data['payment_method'].capitalize()}</td></tr>
-            {change_html}
-        </table>
-        <div style="text-align:center;margin-top:20px;border-top:1px solid #000;padding-top:10px">
-            <p>¡GRACIAS POR SU PREFERENCIA!<br>Cajero: {data['cashier']}</p>
+        
+        <div class="text-divider">--------------------------------</div>
+        
+        <div>Factura #: <span class="bold">{data['invoice_number']}</span></div>
+        <div>{data['table']}</div>
+        <div>Cliente: {data.get('customer_name') or 'Consumidor Final'}</div>
+        
+        <div class="text-divider">--------------------------------</div>
+        
+        <pre class="bold">CANT DESCRIPCION        TOTAL</pre>
+        <pre>{items_html or 'Sin productos'}</pre>
+        
+        <div class="text-divider">--------------------------------</div>
+        
+        <pre>Subtotal:              ${data['subtotal']:.2f}
+ITBIS (18%):           ${data['tax']:.2f}{tip_html}
+<span style="font-size: 15px; font-weight: bold;">TOTAL:                 ${data['total']:.2f}</span>
+Metodo: {data['payment_method'].capitalize()}{change_html}</pre>
+        
+        <div class="text-divider">--------------------------------</div>
+        
+        <div class="footer-info">
+            <p class="bold" style="font-size:13px">¡GRACIAS POR SU PREFERENCIA!</p>
+            <p>Atendido por: {data['waiter']}<br>Cajero: {data['cashier']}</p>
         </div>
     </body>
     </html>
     """
+    return html_content
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -292,11 +374,11 @@ def process_payment(
         if not order:
             raise HTTPException(404, "Orden no encontrada")
         
-        # 2. Validar estado de la orden
-        if order.status != OrderStatus.SERVED:
+        # 2. Validar estado de la orden (no debe estar cancelada ni ya pagada)
+        if order.status in [OrderStatus.CANCELLED, OrderStatus.PAID]:
             raise HTTPException(
                 400, 
-                f"La orden debe estar en estado 'served'. Estado actual: {order.status}"
+                f"No se puede cobrar una orden en estado '{order.status}'. Estado v\u00e1lido: cualquier estado activo."
             )
         
         # 3. Verificar que no esté ya pagada
@@ -328,7 +410,9 @@ def process_payment(
         total_with_tip = order.total + payment_data.tip_amount
         change = None
         
-        if payment_data.payment_method == "cash":
+        if payment_data.payment_method == PaymentMethod.CASH:
+            if payment_data.amount_received is None:
+                raise HTTPException(400, "amount_received es requerido para pagos en efectivo")
             if payment_data.amount_received < total_with_tip:
                 raise HTTPException(
                     400, 
@@ -357,7 +441,7 @@ def process_payment(
         order.closed_at = datetime.now()
         
         # 8. Liberar mesa automáticamente
-        # 8. Liberar mesa automáticamente
+        table = None
         if order.table_id:
             table = db.query(Table).filter(
                 Table.id == order.table_id,
@@ -367,7 +451,6 @@ def process_payment(
             if table:
                 # Cambiar estado a LIBRE
                 table.status = TableStatus.LIBRE
-                # Si existiera current_order_id lo limpiaríamos aquí, pero el modelo no lo tiene
                 print(f"Mesa {table.number} liberada automáticamente por pago de orden {order.id}")
         
         # 9. Commit de transacción
@@ -377,7 +460,7 @@ def process_payment(
         # Construct response with table_number
         response = PaymentResponse.model_validate(new_payment)
         if table:
-            response.table_number = table.number
+            response.table_number = str(table.number)
             
         return response
         
@@ -386,6 +469,9 @@ def process_payment(
         raise
     except Exception as e:
         db.rollback()
+        import traceback
+        print(f"ERROR en process_payment: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(500, f"Error procesando pago: {str(e)}")
 
 @router.get("/{payment_id}", response_model=PaymentResponse)
@@ -447,6 +533,7 @@ def get_receipt(
         "table": f"Mesa {order.table.number}" if order.table else "Para llevar",
         "waiter": order.user.nombre if order.user else "N/A",
         "cashier": payment.processed_by_user.nombre if payment.processed_by_user else "N/A",
+        "customer_name": order.customer_name if hasattr(order, 'customer_name') else None,
         "items": [
             {
                 "quantity": item.quantity,

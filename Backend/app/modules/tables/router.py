@@ -69,7 +69,7 @@ def get_tables(
     """
     tables = db.query(TableModel).filter(
         TableModel.id_empresa == current_user.id_empresa
-    ).offset(skip).limit(limit).all()
+    ).order_by(TableModel.id.asc()).offset(skip).limit(limit).all()
     return tables
 
 @router.get("/{table_id}", response_model=schemas.Table)

@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { dashboardService, RecentOrder, DashboardStats, SalesData, CategoryData } from '../services/dashboardService';
 
 import StatCard from '@/app/shared/components/StatCard';
+import { formatNumber } from '@/lib/formatNumber';
 
 
 export default function Dashboard() {
@@ -71,33 +72,33 @@ export default function Dashboard() {
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                 <StatCard
                     title="Ventas del Día"
-                    value={stats.ventas_del_dia.formatted}
+                    value={formatNumber(stats.ventas_del_dia.value)}
                     change={stats.ventas_del_dia.change}
-                    icon={<DollarSign className="w-6 h-6 text-white" />}
+                    icon={<DollarSign className="w-5 h-5 text-white" />}
                     color="bg-gradient-to-br from-green-500 to-emerald-600"
                 />
                 <StatCard
                     title="Pedidos Activos"
                     value={stats.pedidos_activos.formatted}
                     change={stats.pedidos_activos.change}
-                    icon={<ShoppingBag className="w-6 h-6 text-white" />}
+                    icon={<ShoppingBag className="w-5 h-5 text-white" />}
                     color="bg-gradient-to-br from-blue-500 to-cyan-600"
                 />
                 <StatCard
                     title="Clientes Hoy"
                     value={stats.clientes_hoy.formatted}
                     change={stats.clientes_hoy.change}
-                    icon={<Users className="w-6 h-6 text-white" />}
+                    icon={<Users className="w-5 h-5 text-white" />}
                     color="bg-gradient-to-br from-purple-500 to-pink-600"
                 />
                 <StatCard
                     title="Mesas Ocupadas"
                     value={stats.mesas_ocupadas.formatted}
                     change={stats.mesas_ocupadas.change}
-                    icon={<Utensils className="w-6 h-6 text-white" />}
+                    icon={<Utensils className="w-5 h-5 text-white" />}
                     color="bg-gradient-to-br from-orange-500 to-red-600"
                 />
 
@@ -107,7 +108,7 @@ export default function Dashboard() {
                         title="Personal Total"
                         value={stats.total_staff.value.toString()}
                         change={0}
-                        icon={<Users className="w-6 h-6 text-white" />}
+                        icon={<Users className="w-5 h-5 text-white" />}
                         color="bg-gradient-to-br from-indigo-500 to-purple-600"
                         onClick={() => navigate('/dashboard/staff')}
                     />
@@ -187,7 +188,7 @@ export default function Dashboard() {
                                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
                                     <span className="text-sm text-slate-600">{item.name}</span>
                                 </div>
-                                <span className="text-sm font-medium text-slate-900">${item.value.toLocaleString()}</span>
+                                <span className="text-sm font-medium text-slate-900 text-right">{item.value.toLocaleString()}</span>
                             </div>
                         ))}
                     </div>
@@ -209,7 +210,7 @@ export default function Dashboard() {
                                 <th className="text-left py-3 px-4 text-sm font-medium text-slate-600">Pedido</th>
                                 <th className="text-left py-3 px-4 text-sm font-medium text-slate-600">Cliente</th>
                                 <th className="text-left py-3 px-4 text-sm font-medium text-slate-600">Mesa</th>
-                                <th className="text-left py-3 px-4 text-sm font-medium text-slate-600">Total</th>
+                                <th className="text-right py-3 px-4 text-sm font-medium text-slate-600">Total</th>
                                 <th className="text-left py-3 px-4 text-sm font-medium text-slate-600">Estado</th>
                             </tr>
                         </thead>
@@ -225,7 +226,7 @@ export default function Dashboard() {
                                     <td className="py-3 px-4 text-sm font-medium text-slate-900">{order.id}</td>
                                     <td className="py-3 px-4 text-sm text-slate-600">{order.cliente}</td>
                                     <td className="py-3 px-4 text-sm text-slate-600">Mesa {order.mesa}</td>
-                                    <td className="py-3 px-4 text-sm font-medium text-slate-900">{order.total}</td>
+                                    <td className="py-3 px-4 text-sm font-medium text-slate-900 text-right">{formatNumber(order.total)}</td>
                                     <td className="py-3 px-4">
                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${order.estado === 'Listo' ? 'bg-green-100 text-green-700' :
                                             order.estado === 'Preparando' ? 'bg-yellow-100 text-yellow-700' :

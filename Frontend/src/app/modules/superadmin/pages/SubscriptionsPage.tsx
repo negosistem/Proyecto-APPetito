@@ -118,7 +118,7 @@ export default function SubscriptionsPage() {
                     <div>
                         <p className="text-sm text-gray-500 font-medium">MRR Total</p>
                         <h3 className="text-2xl font-bold text-gray-900 mt-1">
-                            ${Math.round(stats.mrr).toLocaleString()}
+                            {Math.round(stats.mrr).toLocaleString()}
                         </h3>
                         <p className="text-xs text-green-600 font-medium mt-1 flex items-center gap-1">
                             <span className="bg-green-100 px-1.5 py-0.5 rounded-full">+18.2%</span>
@@ -231,8 +231,8 @@ export default function SubscriptionsPage() {
                                                 {plan.name}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4">
-                                            <div className="font-semibold text-gray-900 text-sm">${plan.price}</div>
+                                        <td className="px-6 py-4 text-right">
+                                            <div className="font-semibold text-gray-900 text-sm">{plan.price.toFixed(2)}</div>
                                             <div className="text-xs text-gray-500">/{plan.period}</div>
                                         </td>
                                         <td className="px-6 py-4">
@@ -248,8 +248,8 @@ export default function SubscriptionsPage() {
                                             <div className="text-sm font-medium text-gray-900">{dates.next}</div>
                                             <div className="text-xs text-gray-500">Último: {dates.last}</div>
                                         </td>
-                                        <td className="px-6 py-4">
-                                            <span className="font-semibold text-gray-900 text-sm">${totalPaid}</span>
+                                        <td className="px-6 py-4 text-right">
+                                            <span className="font-semibold text-gray-900 text-sm">{totalPaid.toFixed(2)}</span>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">

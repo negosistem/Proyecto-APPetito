@@ -8,6 +8,11 @@ export interface StaffMember {
     role_id: number;
     role: Role; // Full role object
     turno?: 'Mañana' | 'Tarde' | 'Noche';
+    telefono?: string;
+    cedula?: string;
+    direccion?: string;
+    foto?: string;
+    modules?: string[];
     is_active: boolean;
     created_at: string;
 }
@@ -18,6 +23,11 @@ export interface StaffCreateInput {
     password: string;
     role_id: number; // Changed from role string
     turno?: 'Mañana' | 'Tarde' | 'Noche';
+    telefono?: string;
+    cedula?: string;
+    direccion?: string;
+    foto?: string;
+    modules?: string[];
     is_active?: boolean;
 }
 
@@ -27,6 +37,11 @@ export interface StaffUpdateInput {
     password?: string;
     role_id?: number; // Changed from role string
     turno?: 'Mañana' | 'Tarde' | 'Noche';
+    telefono?: string;
+    cedula?: string;
+    direccion?: string;
+    foto?: string;
+    modules?: string[];
     is_active?: boolean;
 }
 

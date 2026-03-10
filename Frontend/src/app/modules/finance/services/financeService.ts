@@ -46,11 +46,11 @@ export const financeService = {
         if (params.start_date) query.append('start_date', params.start_date);
         if (params.end_date) query.append('end_date', params.end_date);
         if (params.category) query.append('category', params.category);
-        return apiClient.get<Expense[]>(`/api/finances/expenses?${query.toString()}`);
+        return apiClient.get<Expense[]>(`/api/finances/expenses/?${query.toString()}`);
     },
 
     createExpense: (data: any) => {
-        return apiClient.post<Expense>('/api/finances/expenses', data);
+        return apiClient.post<Expense>('/api/finances/expenses/', data);
     },
 
     deleteExpense: (id: number) => {

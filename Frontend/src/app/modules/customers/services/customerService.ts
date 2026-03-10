@@ -25,14 +25,14 @@ export const customerService = {
      * Obtiene todos los clientes
      */
     async getCustomers(): Promise<Customer[]> {
-        return apiClient.get<Customer[]>('/api/customers');
+        return apiClient.get<Customer[]>('/api/customers/');
     },
 
     /**
      * Crea un nuevo cliente
      */
     async createCustomer(customer: CustomerCreate): Promise<Customer> {
-        return apiClient.post<Customer>('/api/customers', customer);
+        return apiClient.post<Customer>('/api/customers/', customer);
     },
 
     /**

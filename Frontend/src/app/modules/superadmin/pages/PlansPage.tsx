@@ -208,7 +208,7 @@ export default function PlansPage() {
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
                     <div>
                         <p className="text-sm text-gray-500 font-medium">Ingresos Mensuales</p>
-                        <h3 className="text-3xl font-bold text-gray-900 mt-2">${stats.monthlyRevenue.toLocaleString()}</h3>
+                        <h3 className="text-3xl font-bold text-gray-900 mt-2">{stats.monthlyRevenue.toLocaleString()}</h3>
                     </div>
                     <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center text-orange-500">
                         <DollarSign className="w-6 h-6" />
@@ -222,8 +222,8 @@ export default function PlansPage() {
                     <button
                         onClick={() => setBillingCycle('monthly')}
                         className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${billingCycle === 'monthly'
-                                ? 'bg-orange-500 text-white shadow-sm'
-                                : 'text-gray-600 hover:bg-gray-50'
+                            ? 'bg-orange-500 text-white shadow-sm'
+                            : 'text-gray-600 hover:bg-gray-50'
                             }`}
                     >
                         Mensual
@@ -232,8 +232,8 @@ export default function PlansPage() {
                         <button
                             onClick={() => setBillingCycle('yearly')}
                             className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${billingCycle === 'yearly'
-                                    ? 'bg-orange-500 text-white shadow-sm'
-                                    : 'text-gray-600 hover:bg-gray-50'
+                                ? 'bg-orange-500 text-white shadow-sm'
+                                : 'text-gray-600 hover:bg-gray-50'
                                 }`}
                         >
                             Anual
@@ -262,7 +262,7 @@ export default function PlansPage() {
                             <p className="text-white/90 text-sm text-left mb-6 h-10 line-clamp-2">{plan.description}</p>
 
                             <div className="text-left">
-                                <span className="text-4xl font-bold">${plan.price}</span>
+                                <span className="text-4xl font-bold">{plan.price}</span>
                                 <span className="text-white/80 text-sm">/{billingCycle === 'monthly' ? 'mes' : 'año'}</span>
                             </div>
 

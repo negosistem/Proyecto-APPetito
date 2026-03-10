@@ -105,6 +105,151 @@ def list_companies(
     return result
 
 
+@router.post("/companies/setup", status_code=status.HTTP_201_CREATED)
+def setup_restaurant(
+    data: schemas.RestaurantCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_super_admin)
+):
+    """
+    Crear un restaurante COMPLETO desde cero en una sola operación atómica.
+    Crea: empresa + usuario admin + roles base + 5 mesas + categoría inicial.
+    Solo Super Admin puede hacer esto.
+    """
+    # ── 0. Validaciones previas ────────────────────────────────────────────
+    if data.email:
+        existing = db.query(Company).filter(Company.email == data.email).first()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ya existe una empresa con el email '{data.email}'"
+            )
+
+    existing_admin = db.query(User).filter(User.email == data.admin.email).first()
+    if existing_admin:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ya existe un usuario con el email '{data.admin.email}'"
+        )
+
+    try:
+        # ── 1. Crear empresa ───────────────────────────────────────────────
+        trial_ends = datetime.now() + timedelta(days=30) if data.subscription == "trial" else None
+        subscription_status = data.subscription if data.subscription != "trial" else "trial"
+
+        new_company = Company(
+            name=data.name,
+            email=data.email,
+            phone=data.phone,
+            address=data.address,
+            is_active=True,
+            subscription_status=subscription_status,
+            trial_ends_at=trial_ends,
+            max_users=data.max_users,
+            max_tables=data.max_tables,
+            max_products=data.max_products,
+            tax_rate=data.tax_rate or 18.00,
+            currency=data.currency or "DOP",
+        )
+        db.add(new_company)
+        db.flush()  # Obtener new_company.id sin commit
+
+        # ── 2. Garantizar que existen los roles base ───────────────────────
+        base_roles = [
+            ("admin", "Administrador del restaurante"),
+            ("gerente", "Gerente de operaciones"),
+            ("cajero", "Cajero encargado de cobros"),
+            ("mesero", "Mesero atención a clientes"),
+            ("cocina", "Personal de cocina"),
+        ]
+        role_map = {}
+        for role_name, role_desc in base_roles:
+            role = db.query(Role).filter(Role.name == role_name).first()
+            if not role:
+                role = Role(name=role_name, description=role_desc, is_active=True)
+                db.add(role)
+                db.flush()
+            role_map[role_name] = role
+
+        # ── 3. Crear usuario administrador ────────────────────────────────
+        admin_role = role_map["admin"]
+        all_modules = "mesas,pedidos,cocina,finanzas,menu,clientes,staff,reportes,configuracion"
+        new_admin = User(
+            nombre=data.admin.nombre,
+            email=data.admin.email,
+            password_hash=get_password_hash(data.admin.password),
+            id_empresa=new_company.id,
+            role_id=admin_role.id,
+            is_active=True,
+            modules=all_modules,
+        )
+        db.add(new_admin)
+
+        # ── 4. Crear 5 mesas iniciales ─────────────────────────────────────
+        tables_created = 0
+        for i in range(1, 6):
+            table = Table(
+                number=str(i),
+                capacity=4,
+                status="libre",
+                id_empresa=new_company.id,
+                is_active=True,
+            )
+            db.add(table)
+            tables_created += 1
+
+        # ── 5. Crear producto placeholder en categoría "Bebidas" ───────────
+        placeholder = Product(
+            name="Agua Mineral",
+            description="Producto de ejemplo — categoría Bebidas",
+            price=50.00,
+            category="Bebidas",
+            id_empresa=new_company.id,
+            is_active=True,
+            prep_time_minutes=1,
+        )
+        db.add(placeholder)
+
+        # ── 6. Commit atómico ──────────────────────────────────────────────
+        db.commit()
+        db.refresh(new_company)
+        db.refresh(new_admin)
+
+        # ── 7. Auditoría ───────────────────────────────────────────────────
+        log_global_audit(
+            db, current_user,
+            action="restaurant_setup_complete",
+            entity_type="company",
+            entity_id=new_company.id,
+            affected_company_id=new_company.id,
+            details={
+                "company_name": new_company.name,
+                "admin_email": new_admin.email,
+                "subscription": data.subscription,
+                "tables_created": tables_created,
+            },
+        )
+
+        return schemas.RestaurantCreateResponse(
+            success=True,
+            message=f"Restaurante '{new_company.name}' creado exitosamente",
+            company_id=new_company.id,
+            company_name=new_company.name,
+            admin_email=new_admin.email,
+            admin_nombre=new_admin.nombre,
+            tables_created=tables_created,
+            subscription=data.subscription,
+            trial_ends_at=trial_ends,
+        )
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al crear el restaurante: {str(e)}")
+
+
 @router.post("/companies", status_code=status.HTTP_201_CREATED)
 def create_company(
     company_data: schemas.CompanyCreate,
@@ -112,19 +257,17 @@ def create_company(
     current_user: User = Depends(require_super_admin)
 ):
     """
-    Crear nueva empresa en el sistema SaaS.
-    Solo Super Admin puede hacer esto.
+    Crear empresa básica (sin setup automático).
+    Usado internamente por CompanyFormModal para edición.
     """
-    # Validar email único
     if company_data.email:
         existing = db.query(Company).filter(Company.email == company_data.email).first()
         if existing:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,
                 detail=f"Email {company_data.email} ya está registrado"
             )
-    
-    # Crear empresa con trial por defecto
+
     new_company = Company(
         name=company_data.name,
         email=company_data.email,
@@ -137,28 +280,22 @@ def create_company(
         max_tables=company_data.max_tables or 20,
         max_products=company_data.max_products or 100,
         tax_rate=company_data.tax_rate or 18.00,
-        currency=company_data.currency or "DOP"
+        currency=company_data.currency or "DOP",
     )
-    
     db.add(new_company)
     db.commit()
     db.refresh(new_company)
-    
-    # Log de auditoría
+
     log_global_audit(
         db, current_user,
         action="company_created",
         entity_type="company",
         entity_id=new_company.id,
         affected_company_id=new_company.id,
-        details={"name": new_company.name, "email": new_company.email}
+        details={"name": new_company.name, "email": new_company.email},
     )
-    
-    return {
-        "success": True,
-        "company": new_company,
-        "message": f"Empresa '{new_company.name}' creada exitosamente"
-    }
+
+    return {"success": True, "company": new_company, "message": f"Empresa '{new_company.name}' creada exitosamente"}
 
 
 @router.get("/companies/{company_id}", response_model=schemas.CompanyResponse)

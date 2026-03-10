@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Printer, Download, Eye, X } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { formatNumber } from '@/lib/formatNumber';
 
 interface Payment {
     id: number;
@@ -17,19 +18,16 @@ interface PaymentSuccessModalProps {
 }
 
 export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen, payment, onClose }) => {
-    if (!isOpen || !payment) return null;
-
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
     const handlePrint = async (format: 'thermal' | 'pdf') => {
+        if (!payment) return;
         try {
             const token = localStorage.getItem('access_token');
             const url = `${API_URL}/api/payments/${payment.id}/receipt?format=${format}`;
 
             const response = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
 
             if (!response.ok) throw new Error('Error al generar recibo');
@@ -39,16 +37,13 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
 
             const printWindow = window.open(pdfUrl, '_blank');
             if (printWindow) {
-                printWindow.onload = () => {
-                    printWindow.print();
-                };
+                printWindow.onload = () => { printWindow.print(); };
             } else {
                 const a = document.createElement('a');
                 a.href = pdfUrl;
                 a.target = '_blank';
                 a.click();
             }
-
         } catch (error) {
             console.error('Error:', error);
             alert('Error al visualizar el recibo');
@@ -56,25 +51,20 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
     };
 
     const handlePreview = async () => {
+        if (!payment) return;
         try {
             const token = localStorage.getItem('access_token');
             const url = `${API_URL}/api/payments/${payment.id}/receipt?format=html`;
-
             const response = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
-
             if (!response.ok) throw new Error('Error al generar vista previa');
-
             const html = await response.text();
             const previewWindow = window.open('', '_blank');
             if (previewWindow) {
                 previewWindow.document.write(html);
                 previewWindow.document.close();
             }
-
         } catch (error) {
             console.error('Error:', error);
             alert('Error al mostrar vista previa');
@@ -82,21 +72,16 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
     };
 
     const handleDownload = async () => {
+        if (!payment) return;
         try {
             const token = localStorage.getItem('access_token');
             const url = `${API_URL}/api/payments/${payment.id}/receipt?format=pdf`;
-
             const response = await fetch(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             });
-
             if (!response.ok) throw new Error('Error al generar PDF');
-
             const blob = await response.blob();
             const downloadUrl = URL.createObjectURL(blob);
-
             const a = document.createElement('a');
             a.href = downloadUrl;
             a.download = `recibo-${payment.invoice_number}.pdf`;
@@ -104,12 +89,41 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(downloadUrl);
-
         } catch (error) {
             console.error('Error:', error);
             alert('Error al descargar el recibo');
         }
     };
+
+    // 🖨️ Auto-print thermal receipt when a new successful payment opens this modal
+    useEffect(() => {
+        if (isOpen && payment?.id) {
+            const timer = setTimeout(async () => {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const url = `${API_URL}/api/payments/${payment.id}/receipt?format=html`;
+                    const response = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!response.ok) return;
+                    const html = await response.text();
+                    // Inject print-trigger into the HTML before opening
+                    const autoHtml = html.replace('window.focus()', 'window.focus(); window.print();');
+                    const printWindow = window.open('', '_blank');
+                    if (printWindow) {
+                        printWindow.document.write(autoHtml);
+                        printWindow.document.close();
+                    }
+                } catch (e) {
+                    console.error('Auto-print error:', e);
+                }
+            }, 700);
+            return () => clearTimeout(timer);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, payment?.id]);
+
+    if (!isOpen || !payment) return null;
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
@@ -151,12 +165,12 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
                         <div className="grid grid-cols-2 gap-6 bg-white rounded-2xl p-5 shadow-sm">
                             <div className="space-y-1">
                                 <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Total Pagado</p>
-                                <p className="text-xl font-black text-slate-800">${Number(payment.total_amount).toFixed(2)}</p>
+                                <p className="text-xl font-black text-slate-800 text-right">{formatNumber(payment.total_amount)}</p>
                             </div>
                             {payment.change_given && Number(payment.change_given) > 0 && (
                                 <div className="space-y-1 border-l pl-6 border-slate-100">
                                     <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Cambio Entregado</p>
-                                    <p className="text-xl font-black text-green-600">${Number(payment.change_given).toFixed(2)}</p>
+                                    <p className="text-xl font-black text-green-600 text-right">{formatNumber(payment.change_given)}</p>
                                 </div>
                             )}
                         </div>

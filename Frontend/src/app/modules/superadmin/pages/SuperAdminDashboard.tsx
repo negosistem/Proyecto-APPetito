@@ -80,7 +80,7 @@ export default function SuperAdminDashboard() {
         },
         {
             title: 'MRR',
-            value: `$${stats.revenue.total.toLocaleString()}`,
+            value: `${stats.revenue.total.toLocaleString()}`,
             icon: DollarSign,
             iconColor: 'bg-green-500',
             trend: '+18.2%',

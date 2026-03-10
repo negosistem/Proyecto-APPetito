@@ -60,6 +60,36 @@ export const superadminService = {
     },
 
     /**
+     * Crear restaurante COMPLETO (empresa + admin + roles + mesas + categoría)
+     * POST /api/superadmin/companies/setup
+     */
+    async createRestaurant(data: {
+        name: string;
+        email?: string;
+        phone?: string;
+        address?: string;
+        tax_rate?: number;
+        currency?: string;
+        subscription: string;
+        max_users: number;
+        max_tables: number;
+        max_products: number;
+        admin: { nombre: string; email: string; password: string };
+    }): Promise<{
+        success: boolean;
+        message: string;
+        company_id: number;
+        company_name: string;
+        admin_email: string;
+        admin_nombre: string;
+        tables_created: number;
+        subscription: string;
+        trial_ends_at?: string;
+    }> {
+        return apiClient.post(`${BASE_URL}/companies/setup`, data);
+    },
+
+    /**
      * Actualizar empresa existente
      * PUT /api/superadmin/companies/{id}
      */

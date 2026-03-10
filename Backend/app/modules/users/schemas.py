@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 # Base Schema: Shared properties
 class UserBase(BaseModel):
@@ -18,6 +18,14 @@ class UserCreate(UserBase):
 class User(UserBase):
     id: int
     created_at: datetime
+    modules: List[str] = Field(default_factory=list)
+
+    @field_validator('modules', mode='before')
+    @classmethod
+    def parse_modules(cls, v):
+        if isinstance(v, str):
+            return [m.strip() for m in v.split(',') if m.strip()]
+        return v or []
 
     class Config:
         # Pydantic V2 configuration to allow creation from ORM objects

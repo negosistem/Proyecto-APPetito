@@ -31,7 +31,7 @@ export default function BillingPage() {
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center justify-between">
                     <div>
                         <p className="text-sm text-gray-500 font-medium">Facturación Total</p>
-                        <h3 className="text-3xl font-bold text-gray-900 mt-2">${stats.totalRevenue.toLocaleString()}</h3>
+                        <h3 className="text-3xl font-bold text-gray-900 mt-2">{stats.totalRevenue.toLocaleString()}</h3>
                     </div>
                     <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center text-green-600">
                         <DollarSign className="w-6 h-6" />

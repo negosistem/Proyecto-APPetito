@@ -1,6 +1,6 @@
 from app.models.user import User
 from app.models.role import Role
-from app.models.product import Product
+from app.models.product import Product, ProductImage
 from app.models.table import Table
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.customer import Customer

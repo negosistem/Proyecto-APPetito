@@ -9,7 +9,15 @@ class PaymentCreate(BaseModel):
     tip_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
     payment_method: PaymentMethod
     amount_received: Optional[Decimal] = Field(None, ge=0)  # Requerido si es cash
-    
+
+    @field_validator('payment_method', mode='before')
+    @classmethod
+    def normalize_payment_method(cls, v):
+        """Normalize payment method to uppercase to match PostgreSQL enum"""
+        if isinstance(v, str):
+            return v.upper()
+        return v
+
     @field_validator('amount_received')
     def validate_cash_payment(cls, v, info):
         if info.data.get('payment_method') == PaymentMethod.CASH and v is None:

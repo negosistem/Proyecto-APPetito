@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, Wallet, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { financeService, FinancialSummary } from '../services/financeService';
+import { formatNumber } from '@/lib/formatNumber';
 
 interface Props {
     dateRange: { start: string; end: string; label: string };
@@ -51,8 +52,8 @@ export default function FinancialBalance({ dateRange, refreshTrigger }: Props) {
                         <TrendingUp size={16} className="text-emerald-500" />
                         INGRESOS
                     </div>
-                    <div className="text-3xl font-bold text-slate-900">
-                        ${Number(summary?.total_income || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div className="text-3xl font-bold text-slate-900 text-right">
+                        {formatNumber(summary?.total_income || 0)}
                     </div>
                     <div className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-0.5 rounded-full">
                         <ArrowUpRight size={12} />
@@ -66,8 +67,8 @@ export default function FinancialBalance({ dateRange, refreshTrigger }: Props) {
                         <TrendingDown size={16} className="text-red-500" />
                         GASTOS
                     </div>
-                    <div className="text-3xl font-bold text-slate-900">
-                        ${Number(summary?.total_expenses || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div className="text-3xl font-bold text-slate-900 text-right">
+                        {formatNumber(summary?.total_expenses || 0)}
                     </div>
                     <div className="flex items-center gap-1 text-xs font-bold text-red-600 bg-red-50 w-fit px-2 py-0.5 rounded-full">
                         <ArrowUpRight size={12} />
@@ -81,8 +82,8 @@ export default function FinancialBalance({ dateRange, refreshTrigger }: Props) {
                         <Wallet size={16} className="text-blue-500" />
                         UTILIDAD NETA
                     </div>
-                    <div className={`text-4xl font-extrabold ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
-                        ${Number(summary?.net_profit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div className={`text-4xl font-extrabold text-right ${isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {formatNumber(summary?.net_profit || 0)}
                     </div>
                     <div className="text-slate-400 text-xs font-medium">
                         Margen de utilidad: <span className="text-slate-700 font-bold">{summary?.profit_margin || 0}%</span>

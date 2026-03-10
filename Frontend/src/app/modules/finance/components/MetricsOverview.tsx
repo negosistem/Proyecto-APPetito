@@ -3,6 +3,7 @@ import { DollarSign, ShoppingCart, TrendingUp, Gift, Loader2 } from 'lucide-reac
 import { motion } from 'framer-motion';
 import { financeService, SalesSummary } from '../services/financeService';
 import { toast } from 'sonner';
+import { formatNumber } from '@/lib/formatNumber';
 
 interface Props {
     dateRange: { start: string; end: string; label: string };
@@ -45,7 +46,7 @@ export default function MetricsOverview({ dateRange, refreshTrigger }: Props) {
     const cards = [
         {
             label: 'Total Ventas',
-            value: `$${Number(summary?.total_sales || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            value: formatNumber(summary?.total_sales || 0),
             icon: DollarSign,
             color: 'text-blue-600',
             bgColor: 'bg-blue-50',
@@ -61,7 +62,7 @@ export default function MetricsOverview({ dateRange, refreshTrigger }: Props) {
         },
         {
             label: 'Ticket Promedio',
-            value: `$${Number(summary?.average_ticket || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            value: formatNumber(summary?.average_ticket || 0),
             icon: TrendingUp,
             color: 'text-purple-600',
             bgColor: 'bg-purple-50',
@@ -69,7 +70,7 @@ export default function MetricsOverview({ dateRange, refreshTrigger }: Props) {
         },
         {
             label: 'Propinas',
-            value: `$${Number(summary?.total_tips || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            value: formatNumber(summary?.total_tips || 0),
             icon: Gift,
             color: 'text-orange-600',
             bgColor: 'bg-orange-50',
@@ -94,7 +95,7 @@ export default function MetricsOverview({ dateRange, refreshTrigger }: Props) {
                             <Icon className={color} size={20} />
                         </div>
                     </div>
-                    <div className="text-3xl font-bold text-slate-900 relative z-10">{value}</div>
+                    <div className="text-3xl font-bold text-slate-900 relative z-10 text-right">{value}</div>
 
                     {/* Decorative background icon */}
                     <Icon className={`absolute -bottom-2 -right-2 w-20 h-20 ${color} opacity-[0.03] group-hover:opacity-[0.06] transition-opacity`} />

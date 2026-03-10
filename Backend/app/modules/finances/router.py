@@ -7,7 +7,7 @@ from typing import List
 
 from app.db.session import get_db
 from app.core.dependencies import get_current_user
-from app.models import User, Payment, Order, OrderStatus, Expense, ExpenseCategory, Product, OrderItem
+from app.models import User, Payment, Order, OrderStatus, Expense, ExpenseCategory, Product, OrderItem, PaymentMethod
 from .schemas import (
     ExpenseCreate, ExpenseResponse,
     SalesSummary, TopProduct, DailySales, FinancialSummary
@@ -127,9 +127,9 @@ def get_sales_summary(
         total_orders=total_orders,
         average_ticket=avg_ticket,
         total_tips=total_tips,
-        cash_sales=get_sales_by_method('cash'),
-        card_sales=get_sales_by_method('card'),
-        transfer_sales=get_sales_by_method('transfer')
+        cash_sales=get_sales_by_method(PaymentMethod.CASH),
+        card_sales=get_sales_by_method(PaymentMethod.CARD),
+        transfer_sales=get_sales_by_method(PaymentMethod.TRANSFER)
     )
 
 @router.get("/sales/top-products", response_model=List[TopProduct])

@@ -26,6 +26,14 @@ export interface Order {
     items: OrderItem[];
 }
 
+export interface OrderPaginatedResponse {
+    items: Order[];
+    total: number;
+    page: number;
+    pages: number;
+    limit: number;
+}
+
 export interface OrderCreate {
     table_id: number | null;
     customer_id?: number | null;
@@ -40,10 +48,10 @@ export interface OrderCreate {
 
 export const orderService = {
     /**
-     * Obtiene todos los pedidos
+     * Obtiene todos los pedidos paginados
      */
-    async getOrders(): Promise<Order[]> {
-        return apiClient.get<Order[]>('/api/orders');
+    async getOrders(page: number = 1, limit: number = 15): Promise<OrderPaginatedResponse> {
+        return apiClient.get<OrderPaginatedResponse>(`/api/orders?page=${page}&limit=${limit}`);
     },
 
     /**

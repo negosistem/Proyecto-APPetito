@@ -192,7 +192,7 @@ export default function CompanyDetailsPage() {
                         <DollarSign className="w-5 h-5 text-emerald-600" />
                     </div>
                     <p className="text-2xl font-bold text-gray-900">
-                        {stats.revenue.currency} {stats.revenue.total.toLocaleString()}
+                        {stats.revenue.total.toLocaleString()}
                     </p>
                 </div>
             </div>
@@ -274,8 +274,8 @@ export default function CompanyDetailsPage() {
                                         <td className="px-4 py-3 text-sm">
                                             <span
                                                 className={`px-2 py-1 rounded-full text-xs font-medium ${user.is_active
-                                                        ? 'bg-green-100 text-green-700'
-                                                        : 'bg-gray-100 text-gray-700'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : 'bg-gray-100 text-gray-700'
                                                     }`}
                                             >
                                                 {user.is_active ? 'Activo' : 'Inactivo'}

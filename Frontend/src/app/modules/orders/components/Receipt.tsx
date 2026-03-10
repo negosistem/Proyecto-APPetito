@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Printer, Download, CheckCircle, Smartphone } from 'lucide-react';
 import { Receipt as ReceiptData, ReceiptItem } from '../../payments/services/paymentService';
+import { formatNumber } from '@/lib/formatNumber';
 
 interface ReceiptProps {
     isOpen: boolean;
@@ -65,7 +66,7 @@ export const Receipt: React.FC<ReceiptProps> = ({ isOpen, onClose, data }) => {
                                     <div key={idx} className="text-xs">
                                         <div className="flex justify-between">
                                             <span className="font-bold">{item.product_name} x{item.quantity}</span>
-                                            <span>${item.total.toLocaleString()}</span>
+                                            <span className="text-right">{formatNumber(item.total)}</span>
                                         </div>
                                     </div>
                                 ))}
@@ -74,15 +75,15 @@ export const Receipt: React.FC<ReceiptProps> = ({ isOpen, onClose, data }) => {
                             <div className="border-t-2 border-dashed border-slate-200 pt-4 space-y-2 text-sm">
                                 <div className="flex justify-between text-slate-500 text-xs">
                                     <span>Subtotal</span>
-                                    <span>${data.subtotal.toLocaleString()}</span>
+                                    <span className="text-right">{formatNumber(data.subtotal)}</span>
                                 </div>
                                 <div className="flex justify-between text-slate-500 text-xs">
                                     <span>Propina</span>
-                                    <span>${data.tip.toLocaleString()}</span>
+                                    <span className="text-right">{formatNumber(data.tip)}</span>
                                 </div>
                                 <div className="flex justify-between font-black text-lg border-t border-slate-100 pt-2">
                                     <span>TOTAL</span>
-                                    <span>${data.total.toLocaleString()}</span>
+                                    <span className="text-right">{formatNumber(data.total)}</span>
                                 </div>
                             </div>
 
@@ -95,11 +96,11 @@ export const Receipt: React.FC<ReceiptProps> = ({ isOpen, onClose, data }) => {
                                     <>
                                         <div className="flex justify-between">
                                             <span>Recibido:</span>
-                                            <span>${data.amount_received?.toLocaleString()}</span>
+                                            <span className="text-right">{data.amount_received ? formatNumber(data.amount_received) : ''}</span>
                                         </div>
                                         <div className="flex justify-between font-bold text-slate-600">
                                             <span>Cambio:</span>
-                                            <span>${data.change?.toLocaleString()}</span>
+                                            <span className="text-right">{data.change ? formatNumber(data.change) : ''}</span>
                                         </div>
                                     </>
                                 )}

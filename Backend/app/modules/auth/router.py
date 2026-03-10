@@ -3,8 +3,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.db.session import get_db
 from app.models.user import User
+from app.models.role import Role
 from app.utils.security import verify_password, get_password_hash
 from app.core.security import create_access_token
 from app.core.dependencies import get_current_user  # ← Importado

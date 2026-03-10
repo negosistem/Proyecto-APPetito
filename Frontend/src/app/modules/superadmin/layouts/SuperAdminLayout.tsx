@@ -5,10 +5,13 @@
 import { Outlet, Link } from 'react-router';
 import { SuperAdminSidebar } from '../components/SuperAdminSidebar';
 import { useAuth } from '../../auth/context/AuthContext';
-import { Search, Bell, Plus, ChevronDown, Globe } from 'lucide-react';
+import { Search, Bell, ChevronDown, Globe } from 'lucide-react';
+import { SuperAdminProvider, useSuperAdmin } from '../context/SuperAdminContext';
+import { CreateRestaurantModal } from '../components/CreateRestaurantModal';
 
-export default function SuperAdminLayout() {
+function SuperAdminContent() {
     const { user } = useAuth();
+    const { showCreateRestaurant, closeCreateRestaurant, refreshCompanies } = useSuperAdmin();
 
     return (
         <div className="flex h-screen bg-gray-50 font-sans">
@@ -48,14 +51,7 @@ export default function SuperAdminLayout() {
 
                         <div className="h-6 w-px bg-gray-200 mx-1"></div>
 
-                        {/* Create Button */}
-                        <Link
-                            to="/superadmin/companies"
-                            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm shadow-indigo-200"
-                        >
-                            <Plus className="w-4 h-4" />
-                            <span>Nuevo Restaurante</span>
-                        </Link>
+                        {/* Create Button — en CompaniesPage */}
 
                         {/* User Profile (Minimal) */}
                         <div className="flex items-center gap-3 ml-2 cursor-pointer">
@@ -71,6 +67,21 @@ export default function SuperAdminLayout() {
                     <Outlet />
                 </div>
             </main>
+
+            {/* Modal global accesible desde cualquier página del SuperAdmin */}
+            <CreateRestaurantModal
+                isOpen={showCreateRestaurant}
+                onClose={closeCreateRestaurant}
+                onSuccess={() => { closeCreateRestaurant(); refreshCompanies(); }}
+            />
         </div>
+    );
+}
+
+export default function SuperAdminLayout() {
+    return (
+        <SuperAdminProvider>
+            <SuperAdminContent />
+        </SuperAdminProvider>
     );
 }

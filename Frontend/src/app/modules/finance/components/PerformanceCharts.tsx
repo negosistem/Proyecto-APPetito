@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
 import { financeService, DailySales, TopProduct, SalesSummary } from '../services/financeService';
 import { Loader2 } from 'lucide-react';
+import { formatNumber } from '@/lib/formatNumber';
 
 interface Props {
     dateRange: { start: string; end: string; label: string };
@@ -89,7 +90,7 @@ export default function PerformanceCharts({ dateRange, refreshTrigger }: Props) 
                                     axisLine={false}
                                     tickLine={false}
                                     tick={{ fill: '#64748b', fontSize: 12 }}
-                                    tickFormatter={(value) => `$${value}`}
+                                    tickFormatter={(value) => `${value}`}
                                 />
                                 <Tooltip
                                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
@@ -170,7 +171,7 @@ export default function PerformanceCharts({ dateRange, refreshTrigger }: Props) 
                             </div>
                             <div className="flex items-end justify-between">
                                 <div className="text-slate-500 text-xs">{product.quantity_sold} vendidos</div>
-                                <div className="text-orange-600 font-bold">${Number(product.total_revenue).toFixed(2)}</div>
+                                <div className="text-orange-600 font-bold text-right">{formatNumber(product.total_revenue)}</div>
                             </div>
                             <div className="mt-3 h-1 w-full bg-slate-200 rounded-full overflow-hidden">
                                 <motion.div

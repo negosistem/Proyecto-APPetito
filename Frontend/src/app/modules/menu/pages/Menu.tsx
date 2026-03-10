@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, X, Loader2, Upload, Image as ImageIcon, Video, Trash2 } from 'lucide-react';
+import { Plus, Search, X, Loader2, Upload, Image as ImageIcon, Video, Trash2, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { menuService, Product } from '../services/menuService';
+import { formatNumber } from '@/lib/formatNumber';
 
 const categoriasEstaticas = ['Entradas', 'Platos Principales', 'Postres', 'Bebidas'];
 
@@ -31,7 +32,8 @@ export default function Menu() {
     category: 'Entradas',
     is_active: true,
     image_url: '',
-    video_url: ''
+    video_url: '',
+    tiempo_preparacion: '' as string | number
   });
 
   // File upload state
@@ -39,6 +41,7 @@ export default function Menu() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [galleryImages, setGalleryImages] = useState<{ url: string; file?: File; id?: number; isExisting: boolean; isDeleted?: boolean }[]>([]);
 
   const fetchMenu = async () => {
     setIsLoading(true);
@@ -74,11 +77,17 @@ export default function Menu() {
         category: product.category,
         is_active: product.is_active,
         image_url: product.image_url || '',
-        video_url: product.video_url || ''
+        video_url: product.video_url || '',
+        tiempo_preparacion: product.tiempo_preparacion ?? ''
       });
       // Set existing media previews
       setImagePreview(getMediaUrl(product.image_url));
       setVideoPreview(getMediaUrl(product.video_url));
+      setGalleryImages(product.images?.map(img => ({
+        url: getMediaUrl(img.url) || '',
+        id: img.id,
+        isExisting: true
+      })) || []);
     } else {
       setEditingId(null);
       setFormDish({
@@ -88,10 +97,12 @@ export default function Menu() {
         category: 'Entradas',
         is_active: true,
         image_url: '',
-        video_url: ''
+        video_url: '',
+        tiempo_preparacion: ''
       });
       setImagePreview(null);
       setVideoPreview(null);
+      setGalleryImages([]);
     }
     setImageFile(null);
     setVideoFile(null);
@@ -161,6 +172,34 @@ export default function Menu() {
     setFormDish(prev => ({ ...prev, video_url: '' }));
   };
 
+  const handleGalleryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const currentActiveImages = galleryImages.filter(img => !img.isDeleted);
+
+    if (currentActiveImages.length + files.length > 5) {
+      toast.error('Máximo 5 imágenes permitidas');
+      return;
+    }
+
+    const newImages = files.map(file => ({
+      url: URL.createObjectURL(file),
+      file,
+      isExisting: false
+    }));
+
+    setGalleryImages(prev => [...prev, ...newImages]);
+  };
+
+  const handleRemoveGalleryImage = (index: number) => {
+    setGalleryImages(prev => {
+      const img = prev[index];
+      if (img.isExisting) {
+        return prev.map((item, i) => i === index ? { ...item, isDeleted: true } : item);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formDish.name || !formDish.price) {
@@ -185,20 +224,49 @@ export default function Menu() {
         videoUrl = result.url;
       }
 
+      // Handle Gallery Images
+      let finalImages = galleryImages.filter(img => img.isExisting && !img.isDeleted).map(img => ({
+        url: img.url.replace(import.meta.env.VITE_API_URL || 'http://localhost:8000', ''),
+        order: 0 // Simplification for now
+      }));
+
+      // Upload new gallery files
+      const newFiles = galleryImages.filter(img => !img.isExisting).map(img => img.file!);
+      if (newFiles.length > 0) {
+        // We need a product ID to use the append endpoint, but to keep it simple 
+        // with our `update_product` logic that replaces the list, 
+        // we'll upload them one by one or create first.
+
+        // If creating: we create product FIRST, then upload.
+        // If editing: we have editingId.
+      }
+
+      const parsedPrepTime = formDish.tiempo_preparacion === '' || isNaN(Number(formDish.tiempo_preparacion))
+        ? null
+        : Number(formDish.tiempo_preparacion);
+
       const productData = {
         ...formDish,
         price: parseFloat(formDish.price),
+        tiempo_preparacion: parsedPrepTime,
         image_url: imageUrl,
-        video_url: videoUrl
+        video_url: videoUrl,
+        images: finalImages
       };
 
+      let savedProduct: Product;
       if (editingId) {
-        await menuService.updateProduct(editingId, productData);
-        toast.success('¡Plato actualizado con éxito!');
+        savedProduct = await menuService.updateProduct(editingId, productData);
       } else {
-        await menuService.createProduct(productData);
-        toast.success('¡Plato creado con éxito!');
+        savedProduct = await menuService.createProduct(productData);
       }
+
+      // Upload new gallery files if any
+      if (newFiles.length > 0) {
+        await menuService.uploadImages(savedProduct.id, newFiles);
+      }
+
+      toast.success(editingId ? '¡Plato actualizado con éxito!' : '¡Plato creado con éxito!');
       setIsModalOpen(false);
       fetchMenu();
     } catch (error) {
@@ -299,25 +367,9 @@ export default function Menu() {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: index * 0.05 }}
               onClick={() => handleOpenModal(plato)}
-              className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
+              className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden hover:shadow-lg transition-shadow cursor-pointer group"
             >
-              <div className="h-32 bg-gradient-to-br from-orange-100 to-red-100 flex items-center justify-center text-4xl overflow-hidden relative">
-                {plato.video_url ? (
-                  <video
-                    src={getMediaUrl(plato.video_url)!}
-                    className="h-full w-full object-cover"
-                    controls
-                  />
-                ) : plato.image_url ? (
-                  <img
-                    src={getMediaUrl(plato.image_url)!}
-                    alt={plato.name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="text-6xl">🍽️</span>
-                )}
-              </div>
+              <ProductMedia plato={plato} />
               <div className="p-4">
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="font-semibold text-slate-900 truncate" title={plato.name}>{plato.name}</h3>
@@ -326,10 +378,18 @@ export default function Menu() {
                     {plato.is_active ? 'Disponible' : 'Agotado'}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mb-1">{plato.category}</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-xs text-slate-500">{plato.category}</p>
+                  {plato.tiempo_preparacion && (
+                    <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-600 text-[10px] font-medium px-2 py-0.5 rounded-full border border-amber-200">
+                      <Clock size={10} />
+                      {plato.tiempo_preparacion} min
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-slate-600 mb-3 line-clamp-2 min-h-[2.5rem]">{plato.description}</p>
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold text-slate-900">${plato.price.toLocaleString()}</span>
+                  <span className="text-lg font-bold text-slate-900 text-right">{formatNumber(plato.price)}</span>
                 </div>
               </div>
             </motion.div>
@@ -418,11 +478,33 @@ export default function Menu() {
                   />
                 </div>
 
-                {/* Image Upload */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-slate-700 flex items-center gap-2 mb-1">
+                    <Clock size={16} className="text-slate-500" />
+                    Tiempo de preparación
+                    <span className="text-xs text-slate-400 font-normal">(opcional)</span>
+                  </label>
+                  <div className="relative flex items-center">
+                    <input
+                      type="number"
+                      min={1}
+                      max={300}
+                      placeholder="ej. 20"
+                      value={formDish.tiempo_preparacion}
+                      onChange={(e) => setFormDish({ ...formDish, tiempo_preparacion: e.target.value })}
+                      className="w-full border border-slate-300 rounded-lg px-4 py-2 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-colors"
+                    />
+                    <span className="absolute right-4 text-sm text-slate-400 pointer-events-none">
+                      min
+                    </span>
+                  </div>
+                </div>
+
+                {/* Main Image Upload (Legacy Slot 1) */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     <ImageIcon className="w-4 h-4 inline mr-1" />
-                    Imagen del producto
+                    Imagen principal
                   </label>
                   <div className="flex items-center gap-4">
                     <label className="flex-1 cursor-pointer">
@@ -430,7 +512,7 @@ export default function Menu() {
                         <div className="flex flex-col items-center gap-2">
                           <Upload className="w-6 h-6 text-slate-400" />
                           <span className="text-sm text-slate-600">
-                            {imageFile ? imageFile.name : 'Subir imagen (JPG, PNG, WebP)'}
+                            {imageFile ? imageFile.name : 'Subir imagen principal'}
                           </span>
                         </div>
                       </div>
@@ -448,11 +530,45 @@ export default function Menu() {
                           type="button"
                           onClick={handleRemoveImage}
                           className="absolute top-1 right-1 p-1 bg-white/80 rounded-full hover:bg-white text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                          title="Eliminar imagen"
                         >
                           <X className="w-3 h-3" />
                         </button>
                       </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Multi-Image Gallery */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    <ImageIcon className="w-4 h-4 inline mr-1" />
+                    Galería de imágenes (Hasta 5 adicionales)
+                  </label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {galleryImages.map((img, idx) => !img.isDeleted && (
+                      <div key={idx} className="aspect-square rounded-lg overflow-hidden border border-slate-200 relative group">
+                        <img src={img.url} alt={`Gallery ${idx}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveGalleryImage(idx)}
+                          className="absolute top-1 right-1 p-1 bg-white/80 rounded-full hover:bg-white text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {galleryImages.filter(img => !img.isDeleted).length < 5 && (
+                      <label className="aspect-square border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 hover:bg-orange-50 transition-all">
+                        <Plus className="w-6 h-6 text-slate-400" />
+                        <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold">Añadir</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={handleGalleryChange}
+                          className="hidden"
+                        />
+                      </label>
                     )}
                   </div>
                 </div>
@@ -487,7 +603,6 @@ export default function Menu() {
                           type="button"
                           onClick={handleRemoveVideo}
                           className="absolute top-1 right-1 p-1 bg-white/80 rounded-full hover:bg-white text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10"
-                          title="Eliminar video"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -530,6 +645,74 @@ export default function Menu() {
           </div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// Sub-component for product media with mini-carousel
+function ProductMedia({ plato }: { plato: Product }) {
+  const [currentIdx, setCurrentIdx] = useState(0);
+
+  // Combine single image and gallery
+  const allImages = [
+    ...(plato.image_url ? [plato.image_url] : []),
+    ...(plato.images?.map(img => img.url) || [])
+  ];
+
+  const hasMultiple = allImages.length > 1;
+
+  const next = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentIdx(prev => (prev + 1) % allImages.length);
+  };
+
+  const prev = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentIdx(prev => (prev - 1 + allImages.length) % allImages.length);
+  };
+
+  return (
+    <div className="h-32 bg-gradient-to-br from-orange-100 to-red-100 flex items-center justify-center text-4xl overflow-hidden relative group/media">
+      {plato.video_url ? (
+        <video
+          src={getMediaUrl(plato.video_url)!}
+          className="h-full w-full object-cover"
+          onMouseOver={e => e.currentTarget.play()}
+          onMouseOut={e => e.currentTarget.pause()}
+          muted
+          loop
+        />
+      ) : allImages.length > 0 ? (
+        <>
+          <img
+            src={getMediaUrl(allImages[currentIdx])!}
+            alt={plato.name}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+          />
+          {hasMultiple && (
+            <>
+              <div className="absolute inset-0 flex items-center justify-between px-2 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                <button onClick={prev} className="p-1 bg-white/80 rounded-full hover:bg-white text-slate-800 shadow-sm">
+                  <ChevronLeft size={16} />
+                </button>
+                <button onClick={next} className="p-1 bg-white/80 rounded-full hover:bg-white text-slate-800 shadow-sm">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                {allImages.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-1.5 w-1.5 rounded-full transition-all ${i === currentIdx ? 'bg-orange-500 w-3' : 'bg-white/60'}`}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <span className="text-6xl">🍽️</span>
+      )}
     </div>
   );
 }

@@ -93,6 +93,8 @@ def create_staff_member(
         password_hash=hashed_password,
         role_id=staff_in.role_id,
         turno=staff_in.turno,
+        telefono=staff_in.telefono,
+        modules=",".join(staff_in.modules) if staff_in.modules else "",
         is_active=staff_in.is_active,
         id_empresa=current_user.id_empresa
     )
@@ -165,6 +167,10 @@ def update_staff_member(
     # Handle password separately - hash it if provided
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))
+        
+    if "modules" in update_data:
+        modules_list = update_data.pop("modules")
+        update_data["modules"] = ",".join(modules_list) if modules_list else ""
     
     # Apply updates
     for key, value in update_data.items():

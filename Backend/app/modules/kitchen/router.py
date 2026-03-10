@@ -1,18 +1,72 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
+from jose import jwt, JWTError
 
-from app.db.session import get_db
+from app.db.session import get_db, SessionLocal
 from app.models.order import Order, OrderStatus, OrderItem, OrderItemState
+from app.models.table import Table, TableStatus
 from app.core.dependencies import get_current_user
+from app.core.config import get_settings
 from app.models.user import User
+from app.modules.kitchen.ws_manager import manager as ws_manager
+
+settings = get_settings()
 
 router = APIRouter(
     prefix="/kitchen",
     tags=["Kitchen"]
 )
+
+# ── WebSocket endpoint ────────────────────────────────────────────────────────
+@router.websocket("/ws")
+async def kitchen_websocket(
+    websocket: WebSocket,
+    token: Optional[str] = Query(default=None)
+):
+    """
+    WebSocket endpoint para el tablero Kanban en tiempo real.
+    Autenticación: token JWT pasado como query param ?token=<jwt>
+    """
+    # 1. Validar token
+    if not token:
+        await websocket.close(code=4001, reason="Token requerido")
+        return
+
+    db = SessionLocal()
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub")
+        if not email:
+            raise JWTError("No subject")
+
+        user = db.query(User).filter(User.email == email).first()
+        if not user or not user.is_active:
+            await websocket.close(code=4003, reason="Usuario no autorizado")
+            return
+
+        id_empresa = user.id_empresa
+        if not id_empresa:
+            await websocket.close(code=4003, reason="Usuario sin empresa")
+            return
+
+    except JWTError:
+        await websocket.close(code=4001, reason="Token inválido")
+        return
+    finally:
+        db.close()
+
+    # 2. Aceptar y registrar conexión
+    await ws_manager.connect(websocket, id_empresa)
+    try:
+        # Mantener la conexión viva esperando mensajes (o desconexión)
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, id_empresa)
+
 
 def calculate_order_progress(order: Order) -> dict:
     """Calcular progreso de una orden basado en estado de items"""
@@ -79,10 +133,16 @@ def get_kitchen_kanban(
                 "started_at": order.kitchen_started_at.isoformat() if order.kitchen_started_at else None,
                 "completed_at": order.kitchen_completed_at.isoformat() if order.kitchen_completed_at else None,
                 
-                # Tiempo transcurrido desde llegada (en minutos)
+                # Tiempo de la orden: arranca desde que se ACEPTA, no desde que llega.
+                # Órdenes en estado 'new' (aún no aceptadas) siempre muestran 0.
                 "elapsed_minutes": (
-                    int((datetime.now(timezone.utc) - order.kitchen_received_at).total_seconds() // 60)
-                    if order.kitchen_received_at else 0
+                    int(
+                        (
+                            (min(datetime.now(timezone.utc), order.kitchen_completed_at.replace(tzinfo=timezone.utc)) if order.kitchen_completed_at else datetime.now(timezone.utc))
+                            - order.kitchen_accepted_at.replace(tzinfo=timezone.utc)
+                        ).total_seconds() // 60
+                    )
+                    if order.kitchen_accepted_at else 0
                 ),
                 
                 # 🍔 ITEMS con estado individual
@@ -92,16 +152,26 @@ def get_kitchen_kanban(
                         "product_name": item.product_name,
                         "quantity": item.quantity,
                         "notes": item.notes,
-                        "prep_time_minutes": item.prep_time_minutes or 10,
+                        # 🔥 Usar tiempo real del producto si el snapshot es el default o nulo
+                        "prep_time_minutes": (
+                            item.product.tiempo_preparacion 
+                            if item.product and item.product.tiempo_preparacion and (not item.prep_time_minutes or item.prep_time_minutes == 10)
+                            else (item.prep_time_minutes or 10)
+                        ),
                         
                         # Estado del plato
                         "state": item.state.state if item.state else "pending",
                         "started_at": item.state.started_at.isoformat() if item.state and item.state.started_at else None,
                         "completed_at": item.state.completed_at.isoformat() if item.state and item.state.completed_at else None,
                         
-                        # Tiempo de este plato
+                        # Tiempo de este plato: si terminó, calcular hasta completado, si no, hasta ahora
                         "item_elapsed_minutes": (
-                            int((datetime.now(timezone.utc) - item.state.started_at).total_seconds() // 60)
+                            int(
+                                (
+                                    (min(datetime.now(timezone.utc), item.state.completed_at.replace(tzinfo=timezone.utc)) if item.state.completed_at else datetime.now(timezone.utc))
+                                    - item.state.started_at.replace(tzinfo=timezone.utc)
+                                ).total_seconds() // 60
+                            )
                             if item.state and item.state.started_at else 0
                         )
                     }
@@ -119,7 +189,7 @@ def get_kitchen_kanban(
     return kanban
 
 @router.put("/orders/{order_id}/accept")
-def accept_order(
+async def accept_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -152,10 +222,13 @@ def accept_order(
     
     db.commit()
     
+    # Notificar a los clientes vía WebSocket
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+    
     return {"success": True, "message": "Orden aceptada"}
 
 @router.put("/orders/{order_id}/start")
-def start_preparing(
+async def start_preparing(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -178,10 +251,13 @@ def start_preparing(
     
     db.commit()
     
+    # Notificar a los clientes vía WebSocket
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+    
     return {"success": True, "message": "Preparación iniciada"}
 
 @router.put("/orders/{order_id}/complete")
-def complete_order(
+async def complete_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -199,8 +275,6 @@ def complete_order(
     if order.status != OrderStatus.PREPARING:
         raise HTTPException(400, "Orden debe estar en preparación")
     
-    # Validar que todos los items estén listos
-    # We must join with OrderItemState to check state
     incomplete_items = [
         item for item in order.items
         if not item.state or item.state.state != 'ready'
@@ -217,10 +291,13 @@ def complete_order(
     
     db.commit()
     
+    # Notificar a los clientes vía WebSocket
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+    
     return {"success": True, "message": "Orden completada"}
 
 @router.put("/orders/{order_id}/reject")
-def reject_order(
+async def reject_order(
     order_id: int,
     reason: str,
     db: Session = Depends(get_db),
@@ -241,13 +318,70 @@ def reject_order(
     
     order.status = OrderStatus.CANCELLED
     order.kitchen_notes = f"Rechazada: {reason}"
+    # Liberar la mesa si estaba ocupada
+    if order.table and order.table.status == TableStatus.OCUPADA:
+        order.table.status = TableStatus.LIBRE
     
     db.commit()
     
+    # Notificar a los clientes vía WebSocket
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+    
     return {"success": True, "message": "Orden rechazada"}
 
+@router.put("/orders/{order_id}/revert-to-new")
+async def revert_to_new(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Revertir orden: ACEPTADO → NUEVO"""
+    order = db.query(Order).filter(Order.id == order_id, Order.id_empresa == current_user.id_empresa).first()
+    if not order: raise HTTPException(404, "Orden no encontrada")
+    if order.status != OrderStatus.ACCEPTED: raise HTTPException(400, "Solo se puede revertir desde Aceptado")
+    
+    order.status = OrderStatus.NEW
+    order.kitchen_accepted_at = None
+    db.commit()
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+    return {"success": True}
+
+@router.put("/orders/{order_id}/revert-to-accepted")
+async def revert_to_accepted(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Revertir preparación: PREPARANDO → ACEPTADO"""
+    order = db.query(Order).filter(Order.id == order_id, Order.id_empresa == current_user.id_empresa).first()
+    if not order: raise HTTPException(404, "Orden no encontrada")
+    if order.status != OrderStatus.PREPARING: raise HTTPException(400, "Solo se puede revertir desde Preparación")
+    
+    order.status = OrderStatus.ACCEPTED
+    order.kitchen_started_at = None
+    db.commit()
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+    return {"success": True}
+
+@router.put("/orders/{order_id}/revert-to-preparing")
+async def revert_to_preparing(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Revertir completado: LISTO → PREPARANDO"""
+    order = db.query(Order).filter(Order.id == order_id, Order.id_empresa == current_user.id_empresa).first()
+    if not order: raise HTTPException(404, "Orden no encontrada")
+    if order.status != OrderStatus.READY: raise HTTPException(400, "Solo se puede revertir desde Listo")
+    
+    order.status = OrderStatus.PREPARING
+    order.kitchen_completed_at = None
+    db.commit()
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+    return {"success": True}
+
 @router.put("/items/{item_id}/state")
-def update_item_state(
+async def update_item_state(
     item_id: int,
     item_update: Dict[str, str], # Expects {"new_state": "..."}
     db: Session = Depends(get_db),
@@ -275,23 +409,16 @@ def update_item_state(
         item.state = OrderItemState(order_item_id=item.id)
         db.add(item.state)
     
-    # Actualizar estado
-    # Allow going back to pending if needed? The requirement didn't specify, but for safety let's follow the requested flow
-    # pending -> preparing -> ready
-    
     if new_state == 'preparing':
-         # Allow from pending
         item.state.state = 'preparing'
         item.state.started_at = func.now()
         item.state.chef_id = current_user.id
         
     elif new_state == 'ready':
-        # Allow from preparing
         item.state.state = 'ready'
         item.state.completed_at = func.now()
         
     elif new_state == 'pending':
-        # Allow reset? Maybe useful
         item.state.state = 'pending'
         item.state.started_at = None
         item.state.completed_at = None
@@ -300,5 +427,8 @@ def update_item_state(
         raise HTTPException(400, f"Transición inválida o estado desconocido: {new_state}")
     
     db.commit()
+    
+    # Notificar a los clientes vía WebSocket
+    await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
     
     return {"success": True, "item_state": item.state.state}

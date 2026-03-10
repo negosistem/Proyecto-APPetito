@@ -55,12 +55,8 @@ async def get_current_user(
     
     # 🆕 VALIDACIÓN SUPER ADMIN: No debe tener empresa
     if user.role and user.role.name == "super_admin":
-        if user.id_empresa is not None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error de configuración: Super Admin no debe tener empresa asignada"
-            )
-        # Super Admin está OK sin empresa
+        # Super Admin can have id_empresa or not — we just return them as is
+        # (previously raised 500 if id_empresa was set, now we just allow it)
         return user
     
     # 🆕 VALIDACIÓN USUARIOS NORMALES: Deben tener empresa
@@ -106,3 +102,31 @@ def require_admin_or_manager(current_user: User = Depends(get_current_user)) -> 
             detail="No tienes permisos para realizar esta acción. Se requiere rol de administrador o gerente."
         )
     return current_user
+
+def require_module(module_name: str):
+    """
+    Dependency factory to check if the current user has access to a specific module.
+    Admins and super_admins have full access.
+    """
+    def check_module(current_user: User = Depends(get_current_user)) -> User:
+        if not current_user.role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Sin rol asignado"
+            )
+        
+        # Admin and super_admin bypass
+        if current_user.role.name in ["admin", "super_admin"]:
+            return current_user
+            
+        # Parse user modules list
+        user_modules = [m.strip() for m in current_user.modules.split(',')] if current_user.modules else []
+        
+        if module_name not in user_modules:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"No tienes permisos para acceder al módulo: {module_name}"
+            )
+        return current_user
+        
+    return check_module

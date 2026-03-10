@@ -111,7 +111,7 @@ export default function Clientes() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600 mb-1">Ingresos Totales</p>
-              <p className="text-2xl font-bold text-slate-900">${stats.totalSpent.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-slate-900">{stats.totalSpent.toLocaleString()}</p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
               <DollarSign className="w-6 h-6 text-purple-600" />
@@ -179,7 +179,7 @@ export default function Clientes() {
                       {cliente.address || '-'}
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-700">{cliente.visits}</td>
-                    <td className="py-3 px-4 text-sm font-medium text-slate-900">${cliente.total_spent.toLocaleString()}</td>
+                    <td className="py-3 px-4 text-sm font-medium text-slate-900 text-right">{cliente.total_spent.toLocaleString()}</td>
                     <td className="py-3 px-4 text-sm text-slate-600">
                       {cliente.last_visit ? new Date(cliente.last_visit).toLocaleDateString() : 'Nunca'}
                     </td>

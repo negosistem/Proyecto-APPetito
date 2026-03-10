@@ -8,13 +8,13 @@ REM Iniciar Backend
 echo [1/3] Iniciando Backend FastAPI...
 start "APPetito Backend" cmd /k "cd Backend && venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000"
 
-timeout /t 3 /nobreak > nul
+ping 127.0.0.1 -n 4 > nul
 
 REM Iniciar Frontend
 echo [2/3] Iniciando Frontend React...
 start "APPetito Frontend" cmd /k "cd Frontend && npm run dev"
 
-timeout /t 5 /nobreak > nul
+ping 127.0.0.1 -n 6 > nul
 
 REM Abrir navegador
 echo [3/3] Abriendo navegador...

@@ -1,5 +1,11 @@
 import { apiClient } from '@/app/shared/services/apiClient';
 
+export interface ProductImage {
+    id?: number;
+    url: string;
+    order: number;
+}
+
 export interface Product {
     id: number;
     name: string;
@@ -9,6 +15,8 @@ export interface Product {
     image_url?: string | null;
     video_url?: string | null;
     is_active: boolean;
+    tiempo_preparacion?: number | null;
+    images?: ProductImage[];
 }
 
 export const menuService = {
@@ -16,14 +24,14 @@ export const menuService = {
      * Obtiene todos los productos activos
      */
     async getProducts(): Promise<Product[]> {
-        return apiClient.get<Product[]>('/api/products');
+        return apiClient.get<Product[]>('/api/products/');
     },
 
     /**
      * Crea un nuevo producto
      */
     async createProduct(product: Omit<Product, 'id'>): Promise<Product> {
-        return apiClient.post<Product>('/api/products', product);
+        return apiClient.post<Product>('/api/products/', product);
     },
 
     /**
@@ -59,6 +67,29 @@ export const menuService = {
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || 'Error al subir archivo');
+        }
+
+        return response.json();
+    },
+
+    /**
+     * Sube múltiples imágenes para la galería
+     */
+    async uploadImages(productId: number, files: File[]): Promise<string[]> {
+        const formData = new FormData();
+        files.forEach(file => formData.append('files', file));
+
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/products/${productId}/upload-images`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Error al subir imágenes');
         }
 
         return response.json();

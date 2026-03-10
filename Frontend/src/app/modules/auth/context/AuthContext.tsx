@@ -10,7 +10,8 @@ interface AuthContextType {
     isAuthenticated: boolean;
     isLoading: boolean;
     error: string | null;
-    isSuperAdmin: () => boolean; // ← NUEVO: Helper para detectar super admin
+    isSuperAdmin: () => boolean; // ← Helper para detectar super admin
+    updateUser: (userData: Partial<User>) => void; // ← NUEVO: Permite actualizar datos del usuario en caliente
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -130,6 +131,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return user?.role === 'super_admin' && user?.id_empresa === null;
     };
 
+    const updateUser = (userData: Partial<User>) => {
+        if (user) {
+            const updatedUser = { ...user, ...userData };
+            setUser(updatedUser);
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+        }
+    };
+
     return (
         <AuthContext.Provider value={{
             user,
@@ -139,7 +148,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isAuthenticated: !!user,
             isLoading,
             error,
-            isSuperAdmin // ← NUEVO
+            isSuperAdmin,
+            updateUser
         }}>
             {children}
         </AuthContext.Provider>

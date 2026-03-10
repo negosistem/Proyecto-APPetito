@@ -11,6 +11,7 @@ from app.models.product import Product
 from app.models.user import User
 from app.modules.orders import schemas
 from app.core.dependencies import get_current_user
+from app.modules.kitchen.ws_manager import manager as ws_manager
 
 router = APIRouter(
     prefix="/orders",
@@ -31,23 +32,45 @@ def check_existing_active_order(table_id: int, id_empresa: int, db: Session):
             detail=f"La mesa ya tiene un pedido activo (ID: {existing.id})"
         )
 
-@router.get("/", response_model=List[schemas.Order])
+@router.get("/", response_model=schemas.OrderPaginatedResponse)
 def get_orders(
-    skip: int = 0,
-    limit: int = 100,
+    page: int = 1,
+    limit: int = 15,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get all orders for current user's company.
+    Get all orders for current user's company (paginated).
     """
-    orders = db.query(Order).filter(
-        Order.id_empresa == current_user.id_empresa
-    ).order_by(Order.created_at.desc()).offset(skip).limit(limit).all()
-    return orders
+    if page < 1:
+        page = 1
+    if limit < 1:
+        limit = 15
+        
+    skip = (page - 1) * limit
+    
+    # Base query for the current company
+    base_query = db.query(Order).filter(Order.id_empresa == current_user.id_empresa)
+    
+    # Get total count
+    total = base_query.count()
+    
+    # Get paginated items
+    orders = base_query.order_by(Order.created_at.desc()).offset(skip).limit(limit).all()
+    
+    # Calculate total pages
+    pages = (total + limit - 1) // limit if limit > 0 else 0
+    
+    return schemas.OrderPaginatedResponse(
+        items=orders,
+        total=total,
+        page=page,
+        pages=pages,
+        limit=limit
+    )
 
 @router.post("/", response_model=schemas.Order, status_code=status.HTTP_201_CREATED)
-def create_order(
+async def create_order(
     order_data: schemas.OrderCreate = Body(...), 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -145,7 +168,7 @@ def create_order(
             subtotal=item_subtotal,
             notes=item_data.notes,
             # 🆕 Transfer prep_time
-            prep_time_minutes=product.prep_time_minutes, 
+            prep_time_minutes=product.tiempo_preparacion if product.tiempo_preparacion else product.prep_time_minutes, 
             id_empresa=current_user.id_empresa
         )
         db.add(order_item)
@@ -191,6 +214,11 @@ def create_order(
 
     db.commit()
     db.refresh(new_order)
+    
+    # Notificar a cocina si hay items
+    if initial_status == OrderStatus.NEW:
+        await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+        
     return new_order
 
 @router.get("/table/{table_id}/active", response_model=schemas.Order)
@@ -266,7 +294,7 @@ def get_order_details(
     )
 
 @router.post("/{order_id}/items", response_model=schemas.Order)
-def add_order_items(
+async def add_order_items(
     order_id: int,
     items: List[schemas.OrderItemCreate],
     db: Session = Depends(get_db),
@@ -299,6 +327,8 @@ def add_order_items(
             quantity=item_data.quantity,
             price=product.price, # Snapshot price
             notes=item_data.notes,
+            # Snapshot prep time from product
+            prep_time_minutes=product.tiempo_preparacion if product.tiempo_preparacion else product.prep_time_minutes,
             id_empresa=current_user.id_empresa
         )
         items_to_add.append(new_item)
@@ -309,13 +339,15 @@ def add_order_items(
         order.total += total_added
         db.commit()
         db.refresh(order)
+        # Notificar a cocina
+        await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
     
     return order
 
 @router.patch("/{order_id}/status", response_model=schemas.Order)
 def update_order_status(
     order_id: int,
-    status_update: schemas.OrderUpdate, # Only expecting status here usually
+    status_update: schemas.OrderUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -327,19 +359,12 @@ def update_order_status(
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
     if status_update.status:
-        # Business logic for status changes could go here
-        # e.g. check allowed transitions
-        
-        if status_update.status == OrderStatus.PAID:
-             order.closed_at = datetime.now()
-             # Optionally free the table? Or keep it OCUPADA until paid?
-             # User said: "Si una mesa ya tiene un pedido en estado abierto o en preparación... hasta que cerrado"
-             # Usually "Cerrado" enables new order.
-             # We might want to set table to LIBRE if it was OCUPADA, or keep it OCUPADA contextually.
-             # Let's assume closing order frees up the "system" to take new order, but physical table state is managed manually or inferred.
-             # For now, just close order.
-             pass
-             
+        if status_update.status in [OrderStatus.PAID, OrderStatus.CANCELLED]:
+            order.closed_at = datetime.now()
+            # Liberar la mesa cuando el pedido se paga o cancela
+            if order.table and order.table.status == TableStatus.OCUPADA:
+                order.table.status = TableStatus.LIBRE
+
         order.status = status_update.status
 
     db.commit()
@@ -374,12 +399,15 @@ def close_order(
     
     existing_payment = db.query(Payment).filter(Payment.order_id == order.id).first()
     if not existing_payment:
+        # Generate a unique invoice number: INV-{order_id}-{yyyymmddHHMMSS}
+        invoice_number = f"INV-{order.id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
         new_payment = Payment(
             order_id=order.id,
+            invoice_number=invoice_number,
             subtotal=Decimal(str(order.total)),
             tip_amount=Decimal("0.00"),
             total_amount=Decimal(str(order.total)),
-            payment_method=PaymentMethod.CASH, # Default
+            payment_method=PaymentMethod.CASH,  # Default
             processed_by=current_user.id,
             id_empresa=current_user.id_empresa
         )

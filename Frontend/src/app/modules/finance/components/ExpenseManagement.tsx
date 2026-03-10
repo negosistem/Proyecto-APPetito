@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Plus, Trash2, Tag, Calendar, User, DollarSign, Loader2, Search, Filter } from 'lucide-react';
 import { financeService, Expense } from '../services/financeService';
 import { toast } from 'sonner';
+import { formatNumber } from '@/lib/formatNumber';
 
 interface Props {
     dateRange: { start: string; end: string; label: string };
@@ -123,7 +124,7 @@ export default function ExpenseManagement({ dateRange, refreshTrigger }: Props) 
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5">
-                                <label className="text-sm font-bold text-slate-700">Monto ($)</label>
+                                <label className="text-sm font-bold text-slate-700">Monto</label>
                                 <input
                                     type="number"
                                     step="0.01"
@@ -216,7 +217,7 @@ export default function ExpenseManagement({ dateRange, refreshTrigger }: Props) 
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <div className="text-right">
-                                            <div className="text-md font-bold text-red-600">-${expense.amount.toFixed(2)}</div>
+                                            <div className="text-md font-bold text-red-600 text-right">-{formatNumber(expense.amount)}</div>
                                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{expense.category}</div>
                                         </div>
                                         <button
@@ -237,7 +238,7 @@ export default function ExpenseManagement({ dateRange, refreshTrigger }: Props) 
 
                     <div className="p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
                         <span className="text-sm font-bold text-slate-600 uppercase tracking-widest">Total Gastos</span>
-                        <span className="text-xl font-black text-red-600">-${totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span className="text-xl font-black text-red-600 text-right">-{formatNumber(totalExpenses)}</span>
                     </div>
                 </div>
             </div>

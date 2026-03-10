@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { X, Check, Play, ChefHat } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -5,11 +6,19 @@ interface Props {
     order: any;
     onClose: () => void;
     onUpdate: () => void;
+    tick: number;
 }
 
 import { apiClient } from '../../../shared/services/apiClient';
 
-export default function OrderTicket({ order, onClose, onUpdate }: Props) {
+export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
 
     const handleAccept = async () => {
         try {
@@ -25,7 +34,7 @@ export default function OrderTicket({ order, onClose, onUpdate }: Props) {
         try {
             await apiClient.put(`/api/kitchen/orders/${order.id}/start`, {});
             onUpdate();
-            // onClose(); // Keep open to update items
+            onClose(); // Automatically close as requested by user
         } catch (error) {
             alert('Error al iniciar preparación');
         }
@@ -41,15 +50,37 @@ export default function OrderTicket({ order, onClose, onUpdate }: Props) {
         }
     };
 
-    const toggleItemState = async (itemId: number, currentState: string) => {
-        const newState = currentState === 'pending' ? 'preparing' : 'ready';
-
+    const setItemState = async (itemId: number, newState: string) => {
         try {
             await apiClient.put(`/api/kitchen/items/${itemId}/state`, { new_state: newState });
             onUpdate();
         } catch (error) {
             alert('Error al actualizar estado del plato');
         }
+    };
+
+    const isItemOverdue = (item: any) => {
+        // Alertas solo si está en proceso
+        if (item.state !== 'preparing' || !item.started_at) return false;
+
+        const startedMillis = new Date(item.started_at).getTime();
+        const elapsedMinutes = (Date.now() - startedMillis) / 60000;
+
+        const limit = item.prep_time_minutes || 10;
+        return elapsedMinutes > limit;
+    };
+
+    const getDishTimerLabels = (item: any) => {
+        if (!item.started_at) return "00:00";
+
+        // Si ya terminó, mostrar tiempo final estático
+        const endTime = item.completed_at ? new Date(item.completed_at).getTime() : Date.now();
+        const diff = Math.floor((endTime - new Date(item.started_at).getTime()) / 1000);
+
+        if (diff < 0) return "00:00";
+        const m = Math.floor(diff / 60);
+        const s = diff % 60;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
 
     return (
@@ -71,74 +102,85 @@ export default function OrderTicket({ order, onClose, onUpdate }: Props) {
                 </div>
 
                 <div className="p-6 space-y-6">
-                    {/* Tiempos */}
-                    <div className="bg-gray-50 rounded-xl p-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <p className="text-sm text-gray-600">⏰ Llegó a Cocina</p>
-                                <p className="font-bold text-lg">
-                                    {order.arrived_at ? new Date(order.arrived_at).toLocaleTimeString('es-ES') : 'N/A'}
-                                </p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-gray-600">⏱️ Tiempo Transcurrido</p>
-                                <p className="font-bold text-lg text-orange-600">
-                                    {order.elapsed_minutes} minutos
-                                </p>
-                            </div>
-                        </div>
-                    </div>
+                    {/* Se eliminó la sección de tiempos por solicitud del usuario */}
 
                     {/* Items */}
                     <div>
                         <h3 className="font-semibold text-lg mb-3">PRODUCTOS:</h3>
                         <div className="space-y-3">
-                            {order.items.map((item: any) => (
-                                <div
-                                    key={item.id}
-                                    className={`border-2 rounded-xl p-4 ${item.state === 'ready' ? 'border-green-500 bg-green-50' :
-                                        item.state === 'preparing' ? 'border-blue-500 bg-blue-50' :
-                                            'border-gray-300 bg-white'
-                                        }`}
-                                >
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div className="flex-1">
-                                            <p className="font-semibold">
-                                                {item.quantity}x {item.product_name}
-                                            </p>
-                                            {item.notes && (
-                                                <p className="text-sm text-gray-600 italic">{item.notes}</p>
-                                            )}
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                ⏱️ {item.prep_time_minutes} minutos estimados
-                                            </p>
+                            {order.items.map((item: any) => {
+                                const overdue = isItemOverdue(item);
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className={`border-2 rounded-xl p-4 transition-all ${overdue ? 'border-red-500 bg-red-50 animate-pulse' :
+                                            item.state === 'ready' ? 'border-green-500 bg-green-50' :
+                                                item.state === 'preparing' ? 'border-blue-500 bg-blue-50' :
+                                                    'border-gray-300 bg-white'
+                                            }`}
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex-1">
+                                                <p className={`font-semibold ${overdue ? 'text-red-700' : ''}`}>
+                                                    {item.quantity}x {item.product_name}
+                                                    {overdue && <span className="text-xs ml-2 text-white bg-red-500 px-2 py-0.5 rounded-full not-italic">Atrasado</span>}
+                                                </p>
+                                                {item.notes && (
+                                                    <p className="text-sm text-gray-600 italic">{item.notes}</p>
+                                                )}
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    ⏱️ {item.prep_time_minutes > 0 ? `${item.prep_time_minutes} minutos estimados` : 'Sin tiempo est.'}
+                                                </p>
+                                            </div>
+
+                                            {/* 3 Reversible Item States */}
+                                            <div className="flex gap-1 shrink-0">
+                                                <button
+                                                    onClick={() => setItemState(item.id, 'pending')}
+                                                    disabled={order.status !== 'preparing'}
+                                                    className={`text-xs px-3 py-2 rounded-lg font-bold transition-all ${item.state === 'pending' || !item.state
+                                                        ? 'bg-gray-600 text-white'
+                                                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                                                        } disabled:opacity-50`}
+                                                >
+                                                    Pendiente
+                                                </button>
+                                                <button
+                                                    onClick={() => setItemState(item.id, 'preparing')}
+                                                    disabled={order.status !== 'preparing'}
+                                                    className={`text-xs px-3 py-2 rounded-lg font-bold transition-all ${item.state === 'preparing'
+                                                        ? 'bg-blue-600 text-white shadow-sm'
+                                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                                        } disabled:opacity-50`}
+                                                >
+                                                    En Proceso
+                                                </button>
+                                                <button
+                                                    onClick={() => setItemState(item.id, 'ready')}
+                                                    disabled={order.status !== 'preparing'}
+                                                    className={`text-xs px-3 py-2 rounded-lg font-bold transition-all ${item.state === 'ready'
+                                                        ? 'bg-green-600 text-white shadow-sm'
+                                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                        } disabled:opacity-50`}
+                                                >
+                                                    Listo
+                                                </button>
+                                            </div>
                                         </div>
 
-                                        {/* Estado del Item */}
-                                        <button
-                                            onClick={() => toggleItemState(item.id, item.state)}
-                                            disabled={order.status !== 'preparing'}
-                                            className={`px-4 py-2 rounded-lg font-medium transition ${item.state === 'ready'
-                                                ? 'bg-green-500 text-white'
-                                                : item.state === 'preparing'
-                                                    ? 'bg-blue-500 text-white hover:bg-blue-600'
-                                                    : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
-                                                } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                        >
-                                            {item.state === 'ready' ? '✓ Listo' :
-                                                item.state === 'preparing' ? 'En Proceso' :
-                                                    'Pendiente'}
-                                        </button>
+                                        {/* Tiempo del plato */}
+                                        {(item.state === 'preparing' || item.state === 'ready') && item.started_at && (
+                                            <div className={`text-sm mt-2 flex items-center gap-2 ${overdue ? 'text-red-700 font-bold animate-bounce' :
+                                                item.state === 'ready' ? 'text-green-700 font-medium' : 'text-blue-600 font-medium'}`}>
+                                                <span>⏱️ {item.state === 'ready' ? 'Tiempo total:' : 'Tiempo en proceso:'} {getDishTimerLabels(item)}</span>
+                                                <span className="text-xs bg-gray-100 rounded px-1 text-gray-500">
+                                                    / {item.prep_time_minutes || 10}m est.
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
-
-                                    {/* Tiempo del plato */}
-                                    {item.state !== 'pending' && (
-                                        <div className="text-sm text-gray-600 mt-2">
-                                            Tiempo: {item.item_elapsed_minutes}m / {item.prep_time_minutes}m
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
 
@@ -181,29 +223,65 @@ export default function OrderTicket({ order, onClose, onUpdate }: Props) {
                         )}
 
                         {order.status === 'accepted' && (
-                            <button
-                                onClick={handleStart}
-                                className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-xl hover:bg-blue-700 font-semibold"
-                            >
-                                <Play size={20} />
-                                Iniciar Preparación
-                            </button>
+                            <div className="flex gap-2 w-full">
+                                <button
+                                    onClick={async () => {
+                                        await apiClient.put(`/api/kitchen/orders/${order.id}/revert-to-new`, {});
+                                        onUpdate();
+                                        onClose();
+                                    }}
+                                    className="px-4 py-3 border border-red-300 text-red-600 rounded-xl hover:bg-red-50 font-semibold transition"
+                                >
+                                    ← Volver a Nuevo
+                                </button>
+                                <button
+                                    onClick={handleStart}
+                                    className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white py-3 rounded-xl hover:bg-blue-700 font-semibold transition"
+                                >
+                                    <Play size={20} />
+                                    Pasar a Cocina
+                                </button>
+                            </div>
                         )}
 
                         {order.status === 'preparing' && (
-                            <button
-                                onClick={handleComplete}
-                                disabled={order.progress.percentage < 100}
-                                className="w-full flex items-center justify-center gap-2 bg-green-600 text-white py-3 rounded-xl hover:bg-green-700 font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed"
-                            >
-                                <ChefHat size={20} />
-                                Marcar como Listo
-                            </button>
+                            <div className="flex gap-2 w-full">
+                                <button
+                                    onClick={async () => {
+                                        await apiClient.put(`/api/kitchen/orders/${order.id}/revert-to-accepted`, {});
+                                        onUpdate();
+                                        onClose();
+                                    }}
+                                    className="px-4 py-3 border border-amber-300 text-amber-600 rounded-xl hover:bg-amber-50 font-semibold transition"
+                                >
+                                    ← Volver a Aceptado
+                                </button>
+                                <button
+                                    onClick={handleComplete}
+                                    disabled={order.progress.percentage < 100}
+                                    className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white py-3 rounded-xl hover:bg-green-700 font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                                >
+                                    <ChefHat size={20} />
+                                    Marcar como Listo
+                                </button>
+                            </div>
                         )}
 
                         {order.status === 'ready' && (
-                            <div className="w-full bg-green-100 text-green-700 py-3 rounded-xl text-center font-semibold">
-                                ✓ Orden Lista para Servir
+                            <div className="flex gap-2 w-full">
+                                <button
+                                    onClick={async () => {
+                                        await apiClient.put(`/api/kitchen/orders/${order.id}/revert-to-preparing`, {});
+                                        onUpdate();
+                                        onClose();
+                                    }}
+                                    className="px-4 py-3 border border-orange-300 text-orange-600 rounded-xl hover:bg-orange-50 font-semibold transition"
+                                >
+                                    ← Volver a Preparando
+                                </button>
+                                <div className="flex-1 bg-green-100 text-green-700 py-3 rounded-xl text-center font-semibold">
+                                    ✓ Orden Lista para Servir
+                                </div>
                             </div>
                         )}
                     </div>

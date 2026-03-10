@@ -3,6 +3,19 @@ from pydantic import BaseModel
 from datetime import datetime
 from decimal import Decimal
 from app.models.order import OrderStatus
+from app.models.payment import PaymentMethod
+
+class OrderCloseRequest(BaseModel):
+    payment_method: PaymentMethod
+    amount_received: Decimal
+    tip_amount: Decimal = Decimal('0.00')
+
+class OrderPaginatedResponse(BaseModel):
+    items: List['Order'] # Forward reference for Order
+    total: int
+    page: int
+    pages: int
+    limit: int
 
 # --- Items ---
 class OrderItemBase(BaseModel):

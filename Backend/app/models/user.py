@@ -31,8 +31,16 @@ class User(Base):
     id_empresa = Column(Integer, ForeignKey('companies.id'), nullable=True, index=True)
     empresa = relationship("Company", foreign_keys=[id_empresa], back_populates="users")
     
-    # Work Info
+    # Work & Personal Info
     turno = Column(String, nullable=True) # Expected values: Mañana, Tarde, Noche
+    telefono = Column(String, nullable=True)
+    cedula = Column(String, nullable=True)
+    direccion = Column(String, nullable=True)
+    foto = Column(String, nullable=True) # URL or Base64 string
+    
+    # Permissions & Access Control
+    # Comma-separated list of enabled modules for this user (e.g., "cocina,pedidos,finanzas")
+    modules = Column(String, default="", nullable=False)
     
     # Status
     is_active = Column(Boolean, default=True)

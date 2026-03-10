@@ -14,7 +14,7 @@ sys.path.insert(0, r"C:\Users\sitem\OneDrive\Escritorio\Proyecto APPetito\Backen
 from app.core.config import get_settings
 from app.db.session import Base
 from app.models import (
-    User, Role, Product, Table, Order, OrderItem, Customer, Payment, AuditLog, Expense, ExpenseCategory
+    User, Role, Product, ProductImage, Table, Order, OrderItem, Customer, Payment, AuditLog, Expense, ExpenseCategory
 ) # Import all models to ensure they are registered for autogenerate
 
 # this is the Alembic Config object, which provides

@@ -5,7 +5,12 @@ export interface User {
     nombre: string;
     email: string;
     role: string;
-    id_empresa: number | null; // ← Nullable para super_admin
+    telefono?: string;
+    cedula?: string;
+    direccion?: string;
+    foto?: string;
+    modules?: string[];
+    id_empresa: number | null; // Nullable para super_admin
     empresa?: {
         id: number;
         name: string;

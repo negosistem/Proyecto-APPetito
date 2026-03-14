@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
 from app.db.session import engine, Base
-from app.modules import users, auth, dashboard, products, orders, tables, kitchen, customers, staff, roles, payments, finances, superadmin
+from app.modules import users, auth, dashboard, products, orders, tables, kitchen, customers, staff, roles, payments, finances, superadmin, reservations
 from app.modules import settings as settings_module
 from pathlib import Path
 
@@ -55,6 +55,8 @@ app.include_router(staff.router, prefix="/api")
 app.include_router(roles.router, prefix="/api")
 app.include_router(payments.router, prefix="/api")
 app.include_router(finances.router, prefix="/api")
+from app.modules.reservations.router import router as reservations_router
+app.include_router(reservations_router, prefix="/api/reservations", tags=["Reservations"])
 # 🆕 Super Admin - Gestión Global del SaaS
 app.include_router(superadmin.router, prefix="/api")
 # Settings - Configuración de la empresa

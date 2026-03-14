@@ -19,6 +19,7 @@ class Customer(Base):
     # Multi-tenancy: Company relationship
     id_empresa = Column(Integer, ForeignKey('companies.id'), nullable=False, index=True)
     empresa = relationship("Company")
+    reservations = relationship("Reservation", back_populates="customer")
     
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

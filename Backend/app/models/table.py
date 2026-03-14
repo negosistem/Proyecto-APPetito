@@ -28,6 +28,7 @@ class Table(Base):
         UniqueConstraint('number', 'id_empresa', name='uq_table_number_empresa'),
     )
     empresa = relationship("Company")
+    reservations = relationship("Reservation", back_populates="table")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

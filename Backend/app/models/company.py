@@ -46,6 +46,7 @@ class Company(Base):
     # 🆕 Relaciones
     users = relationship("User", foreign_keys="User.id_empresa", back_populates="empresa")
     suspended_by_user = relationship("User", foreign_keys=[suspended_by])
+    reservations = relationship("Reservation", back_populates="company", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Company(id={self.id}, name='{self.name}', status='{self.subscription_status}')>"

@@ -8,3 +8,4 @@ from app.models.payment import Payment, PaymentMethod
 from app.models.audit_log import AuditLog
 from app.models.expense import Expense, ExpenseCategory
 from app.models.company import Company
+from app.models.reservation import Reservation, ReservationStatus

@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Printer, Download, Eye, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Printer, Download, Eye, X, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { formatNumber } from '@/lib/formatNumber';
 
@@ -20,17 +20,21 @@ interface PaymentSuccessModalProps {
 export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen, payment, onClose }) => {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-    const handlePrint = async (format: 'thermal' | 'pdf') => {
+    const [isPrintingA4, setIsPrintingA4] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
+
+    // Keep thermal printing intact
+    const handlePrintThermal = async () => {
         if (!payment) return;
         try {
             const token = localStorage.getItem('access_token');
-            const url = `${API_URL}/api/payments/${payment.id}/receipt?format=${format}`;
+            const url = `${API_URL}/api/payments/${payment.id}/receipt?format=thermal`;
 
             const response = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
-            if (!response.ok) throw new Error('Error al generar recibo');
+            if (!response.ok) throw new Error('Error al generar recibo thermal');
 
             const blob = await response.blob();
             const pdfUrl = URL.createObjectURL(blob);
@@ -71,27 +75,73 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
         }
     };
 
-    const handleDownload = async () => {
+    // NUEVO: Ver e Imprimir A4 abriendo el PDF en una nueva pestaña (evitar popup blocker)
+    const handlePrintA4 = async () => {
         if (!payment) return;
+        setIsPrintingA4(true);
+
+        // Abrir pestaña sincronamente para evitar el bloqueo de popups del navegador
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write('Generando factura PDF, por favor espere...');
+        }
+
         try {
             const token = localStorage.getItem('access_token');
-            const url = `${API_URL}/api/payments/${payment.id}/receipt?format=pdf`;
-            const response = await fetch(url, {
+            const response = await fetch(`${API_URL}/api/payments/${payment.id}/invoice/pdf`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (!response.ok) throw new Error('Error al generar PDF');
+            
+            if (!response.ok) throw new Error('Error al obtener PDF');
+            
             const blob = await response.blob();
-            const downloadUrl = URL.createObjectURL(blob);
+            const url = window.URL.createObjectURL(blob);
+            
+            if (printWindow) {
+                printWindow.location.href = url;
+            } else {
+                // Fallback en caso de que el navegador bloquee incluso la ventana síncrona
+                window.open(url, '_blank');
+            }
+            
+        } catch (error) {
+            console.error("Error visualizando A4", error);
+            if (printWindow) printWindow.close();
+            alert('Error al visualizar factura');
+        } finally {
+            setIsPrintingA4(false);
+        }
+    };
+
+    // NUEVO: Download PDF using the new invoice endpoint
+    const handleDownloadPDF = async () => {
+        if (!payment) return;
+        setIsDownloading(true);
+        try {
+            const token = localStorage.getItem('access_token');
+            const response = await fetch(`${API_URL}/api/payments/${payment.id}/invoice/pdf`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (!response.ok) throw new Error('Error al obtener PDF');
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            
             const a = document.createElement('a');
-            a.href = downloadUrl;
-            a.download = `recibo-${payment.invoice_number}.pdf`;
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `Factura_${payment.invoice_number}.pdf`;
             document.body.appendChild(a);
             a.click();
+            
+            window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-            URL.revokeObjectURL(downloadUrl);
         } catch (error) {
-            console.error('Error:', error);
-            alert('Error al descargar el recibo');
+            console.error("Error downloading PDF", error);
+            alert('Error al descargar la factura');
+        } finally {
+            setIsDownloading(false);
         }
     };
 
@@ -178,7 +228,7 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
 
                     <div className="space-y-3">
                         <button
-                            onClick={() => handlePrint('thermal')}
+                            onClick={handlePrintThermal}
                             className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-orange-500 to-red-500 text-white py-4 rounded-2xl hover:shadow-xl transition-all duration-300 font-bold group"
                         >
                             <Printer size={20} className="group-hover:scale-110 transition-transform" />
@@ -187,11 +237,12 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
 
                         <div className="grid grid-cols-2 gap-3">
                             <button
-                                onClick={() => handlePrint('pdf')}
+                                onClick={handlePrintA4}
+                                disabled={isPrintingA4}
                                 className="flex items-center justify-center gap-2 bg-slate-800 text-white py-3.5 rounded-2xl hover:bg-slate-900 transition-colors font-bold text-sm"
                             >
-                                <Printer size={18} />
-                                Imprimir A4
+                                {isPrintingA4 ? <Loader2 size={18} className="animate-spin" /> : <Printer size={18} />}
+                                Ver / Imprimir A4
                             </button>
 
                             <button
@@ -204,10 +255,11 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
                         </div>
 
                         <button
-                            onClick={handleDownload}
-                            className="w-full flex items-center justify-center gap-2 text-slate-500 py-3 rounded-2xl hover:bg-slate-50 transition-colors font-semibold text-sm border border-transparent hover:border-slate-200"
+                            onClick={handleDownloadPDF}
+                            disabled={isDownloading}
+                            className="w-full flex items-center justify-center gap-2 text-slate-500 py-3 rounded-2xl hover:bg-slate-50 transition-colors font-semibold text-sm border border-slate-200 hover:border-slate-300"
                         >
-                            <Download size={18} />
+                            {isDownloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
                             Descargar PDF
                         </button>
                     </div>

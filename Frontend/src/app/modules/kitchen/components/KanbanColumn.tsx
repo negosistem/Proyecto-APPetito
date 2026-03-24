@@ -125,8 +125,8 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
                                             #{order.order_number}
                                         </span>
                                     </div>
-                                    <p className="text-sm text-gray-700 font-medium mt-1">
-                                        {order.customer_name || 'Mesa ' + order.table}
+                                    <p className="text-sm text-gray-700 font-bold mt-1">
+                                        {order.table ? `Mesa ${order.table}` : 'Para llevar'}
                                     </p>
                                     <p className="text-xs text-gray-400">
                                         {order.items.length} platos · toca para ver
@@ -147,27 +147,27 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
                                 {/* Header */}
                                 <div className="flex justify-between items-center mb-3">
                                     <span className="font-bold text-lg">#{order.order_number}</span>
-                                    <span className="px-2 py-1 bg-gray-100 rounded text-sm font-medium">
-                                        {order.customer_name || order.table}
+                                    <span className="px-2 py-1 bg-gray-100 rounded text-sm font-bold text-slate-700">
+                                        {order.table ? `Mesa ${order.table}` : 'Para llevar'}
                                     </span>
                                 </div>
 
                                 {/* Se eliminó hora de llegada por solicitud del usuario */}
 
                                 {/* Items Preview */}
-                                <div className="space-y-1">
-                                    {order.items.slice(0, 3).map((item: any, idx: number) => {
+                                <div className="space-y-2 mt-2">
+                                    {order.items.slice(0, 4).map((item: any, idx: number) => {
                                         const vencido = isItemOverdue(order, item);
                                         const isPreparing = item.state === 'preparing';
                                         return (
-                                            <div key={idx} className={`flex items-center gap-2 text-sm ${vencido ? 'text-red-600 font-bold animate-pulse' : ''}`}>
-                                                <span className={`w-2 h-2 rounded-full ${item.state === 'ready' ? 'bg-green-500' :
+                                            <div key={idx} className={`flex items-center gap-2 text-base ${vencido ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-800'}`}>
+                                                <span className={`w-2.5 h-2.5 shrink-0 rounded-full ${item.state === 'ready' ? 'bg-green-500' :
                                                     isPreparing ? 'bg-blue-500' :
                                                         'bg-gray-300'
                                                     }`}></span>
                                                 <span className="truncate flex-1">{item.quantity}x {item.product_name}</span>
                                                 {(isPreparing || item.state === 'ready') && item.started_at && (
-                                                    <span className={`text-[10px] font-mono px-1 rounded ${vencido ? 'bg-red-100' :
+                                                    <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0 ${vencido ? 'bg-red-100' :
                                                         item.state === 'ready' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
                                                         {getDishTimer(item)}
                                                     </span>
@@ -175,9 +175,9 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
                                             </div>
                                         );
                                     })}
-                                    {order.items.length > 3 && (
-                                        <div className="text-xs text-gray-500">
-                                            +{order.items.length - 3} más...
+                                    {order.items.length > 4 && (
+                                        <div className="text-sm text-gray-500 font-medium pt-1 border-t border-slate-100 mt-2">
+                                            +{order.items.length - 4} más...
                                         </div>
                                     )}
                                 </div>

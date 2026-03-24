@@ -94,7 +94,7 @@ export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
                 <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
                     <div>
                         <h2 className="text-2xl font-bold">🔔 Orden #{order.order_number}</h2>
-                        <p className="text-gray-600">Mesa {order.table}</p>
+                        <p className="text-gray-600 font-medium text-lg">{order.table ? `Mesa ${order.table}` : 'Para llevar'}</p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
                         <X size={24} />
@@ -120,13 +120,13 @@ export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
                                             }`}
                                     >
                                         <div className="flex justify-between items-start mb-2">
-                                            <div className="flex-1">
-                                                <p className={`font-semibold ${overdue ? 'text-red-700' : ''}`}>
+                                            <div className="flex-1 pr-4">
+                                                <p className={`font-bold text-xl ${overdue ? 'text-red-700' : 'text-slate-800'}`}>
                                                     {item.quantity}x {item.product_name}
-                                                    {overdue && <span className="text-xs ml-2 text-white bg-red-500 px-2 py-0.5 rounded-full not-italic">Atrasado</span>}
+                                                    {overdue && <span className="text-sm shadow-sm ml-3 text-white bg-red-500 px-2.5 py-0.5 rounded-full not-italic">Atrasado</span>}
                                                 </p>
                                                 {item.notes && (
-                                                    <p className="text-sm text-gray-600 italic">{item.notes}</p>
+                                                    <p className="text-base text-gray-600 italic mt-1 bg-yellow-50 inline-block px-2 py-1 rounded border border-yellow-100">{item.notes}</p>
                                                 )}
                                                 <p className="text-xs text-gray-500 mt-1">
                                                     ⏱️ {item.prep_time_minutes > 0 ? `${item.prep_time_minutes} minutos estimados` : 'Sin tiempo est.'}

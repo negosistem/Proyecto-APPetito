@@ -328,6 +328,27 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                         </div>
                                     </div>
 
+                                    {/* Ocultar banner de pagado/cancelado y mostrar info */}
+                                    {order.status === 'paid' && (
+                                        <div className="bg-green-50 border border-green-200 text-green-700 font-medium p-4 rounded-xl flex items-center justify-between shadow-sm mt-3">
+                                            <div className="flex items-center gap-3">
+                                                <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
+                                                <span className="text-sm">Pedido pagado · No modificable</span>
+                                            </div>
+                                            <button 
+                                                onClick={handlePrint}
+                                                className="text-xs bg-white border border-green-200 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-100 font-bold transition-colors">
+                                                Reimprimir
+                                            </button>
+                                        </div>
+                                    )}
+                                    {order.status === 'cancelled' && (
+                                        <div className="bg-red-50 border border-red-200 text-red-700 font-medium p-4 rounded-xl flex items-center gap-3 shadow-sm mt-3">
+                                            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+                                            <span className="text-sm">Pedido cancelado · No modificable</span>
+                                        </div>
+                                    )}
+
                                     {/* Items list */}
                                     <div>
                                         <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Productos</h4>
@@ -387,17 +408,18 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                 {/* ★ COBRAR button — always shown, prominent */}
                                 <button
                                     onClick={handleCobrar}
-                                    disabled={loading}
-                                    className="w-full py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold shadow-lg hover:shadow-orange-200 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-60 text-base"
+                                    disabled={loading || order.status === 'paid' || order.status === 'cancelled'}
+                                    className={`w-full py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold shadow-lg hover:shadow-orange-200 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-60 text-base ${(order.status === 'paid' || order.status === 'cancelled') ? 'opacity-50 cursor-not-allowed hidden' : ''}`}
                                 >
                                     <CreditCard className="w-5 h-5" />
                                     Cobrar
                                 </button>
 
                                 {/* Secondary actions row */}
-                                <div className="flex gap-2">
+                                <div className={`flex gap-2 ${(order.status === 'paid' || order.status === 'cancelled') ? 'hidden' : ''}`}>
                                     <button
                                         onClick={handlePrint}
+                                        disabled={order.status === 'paid' || order.status === 'cancelled'}
                                         className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 text-sm"
                                     >
                                         <Printer className="w-4 h-4" />
@@ -407,6 +429,7 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                     {!showConfirmClose ? (
                                         <button
                                             onClick={() => setShowConfirmClose(true)}
+                                            disabled={order.status === 'paid' || order.status === 'cancelled'}
                                             className="flex-1 py-2.5 border border-slate-300 text-slate-500 rounded-xl font-medium hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5 text-sm"
                                         >
                                             <Ban className="w-4 h-4" />
@@ -415,7 +438,7 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                     ) : (
                                         <button
                                             onClick={handleCloseOrder}
-                                            disabled={loading}
+                                            disabled={loading || order.status === 'paid' || order.status === 'cancelled'}
                                             className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-all flex items-center justify-center gap-1.5 text-sm disabled:opacity-60"
                                         >
                                             <ChevronRight className="w-4 h-4" />

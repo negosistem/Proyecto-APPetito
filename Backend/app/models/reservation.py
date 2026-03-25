@@ -22,7 +22,7 @@ class Reservation(Base):
     customer_phone = Column(String(20), nullable=False)
     party_size = Column(Integer, nullable=False)
     reservation_date = Column(DateTime, nullable=False)  # Fecha + hora combinadas
-    status = Column(Enum(ReservationStatus), default=ReservationStatus.PENDING, nullable=False)
+    status = Column(Enum(ReservationStatus, values_callable=lambda obj: [item.value for item in obj]), default=ReservationStatus.PENDING, nullable=False)
     notes = Column(Text, nullable=True)
     arrival_time = Column(Time, nullable=True)  # Hora real de llegada
     created_at = Column(DateTime, default=datetime.utcnow)

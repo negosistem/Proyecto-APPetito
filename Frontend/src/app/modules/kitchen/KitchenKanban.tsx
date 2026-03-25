@@ -88,13 +88,6 @@ export default function KitchenKanban() {
                         {wsIndicator.label}
                     </span>
                 </div>
-                <button
-                    onClick={fetchKanban}
-                    className="flex items-center gap-2 px-3 lg:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                >
-                    <RefreshCw size={16} />
-                    <span className="hidden sm:inline">Refrescar</span>
-                </button>
             </div>
 
             {/* Kanban Board */}

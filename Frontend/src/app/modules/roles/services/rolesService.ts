@@ -4,6 +4,10 @@ export interface Role {
     id: number;
     name: string;
     description?: string;
+    permissions?: {
+        all?: boolean;
+        [key: string]: any;
+    };
     is_active: boolean;
     created_at: string;
     updated_at?: string;

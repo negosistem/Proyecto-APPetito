@@ -4,6 +4,7 @@ from typing import List
 
 from app.db.session import get_db
 from app.models.product import Product as ProductModel, ProductImage as ProductImageModel
+from app.models.product_extra import ProductExtra as ProductExtraModel, ProductIngredient as ProductIngredientModel
 from app.modules.products import schemas
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -101,17 +102,22 @@ async def upload_images(
 
 @router.get("/", response_model=List[schemas.Product])
 def get_products(
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get all active products for the menu of the current user's company.
+    Get products for the menu of the current user's company.
+    If include_inactive is False (default), only active products are returned.
     """
-    products = db.query(ProductModel).filter(
-        ProductModel.is_active == True,
+    query = db.query(ProductModel).filter(
         ProductModel.id_empresa == current_user.id_empresa
-    ).all()
-    return products
+    )
+    
+    if not include_inactive:
+        query = query.filter(ProductModel.is_active == True)
+        
+    return query.all()
 
 @router.post("/", response_model=schemas.Product, status_code=status.HTTP_201_CREATED)
 def create_product(
@@ -124,6 +130,8 @@ def create_product(
     """
     product_data = product.model_dump()
     images_data = product_data.pop("images", [])
+    extras_data = product_data.pop("extras", []) or []
+    ingredients_data = product_data.pop("ingredients", []) or []
     
     # Automatically assign company from authenticated user
     db_product = ProductModel(**product_data, id_empresa=current_user.id_empresa)
@@ -134,6 +142,16 @@ def create_product(
     for img in images_data:
         db_image = ProductImageModel(**img, product_id=db_product.id)
         db.add(db_image)
+        
+    # Add extras if any
+    for ext in extras_data:
+        db_extra = ProductExtraModel(**ext, product_id=db_product.id, id_empresa=current_user.id_empresa)
+        db.add(db_extra)
+        
+    # Add ingredients if any
+    for ing in ingredients_data:
+        db_ingredient = ProductIngredientModel(**ing, product_id=db_product.id, id_empresa=current_user.id_empresa)
+        db.add(db_ingredient)
         
     db.commit()
     db.refresh(db_product)
@@ -183,6 +201,8 @@ def update_product(
     
     update_data = product_update.model_dump(exclude_unset=True)
     images_data = update_data.pop("images", None)
+    extras_data = update_data.pop("extras", None)
+    ingredients_data = update_data.pop("ingredients", None)
 
     for key, value in update_data.items():
         setattr(db_product, key, value)
@@ -195,6 +215,20 @@ def update_product(
         for img in images_data:
             db_image = ProductImageModel(**img, product_id=product_id)
             db.add(db_image)
+            
+    # Update extras if provided
+    if extras_data is not None:
+        db.query(ProductExtraModel).filter(ProductExtraModel.product_id == product_id).delete()
+        for ext in extras_data:
+            db_extra = ProductExtraModel(**ext, product_id=product_id, id_empresa=current_user.id_empresa)
+            db.add(db_extra)
+            
+    # Update ingredients if provided
+    if ingredients_data is not None:
+        db.query(ProductIngredientModel).filter(ProductIngredientModel.product_id == product_id).delete()
+        for ing in ingredients_data:
+            db_ingredient = ProductIngredientModel(**ing, product_id=product_id, id_empresa=current_user.id_empresa)
+            db.add(db_ingredient)
     
     db.commit()
     db.refresh(db_product)
@@ -233,4 +267,100 @@ def delete_product(
             )
         raise e
     
+    return None
+
+
+# ─────────────────────────────────────────────────────────
+# ── Product Extras CRUD ──────────────────────────────────
+# ─────────────────────────────────────────────────────────
+
+@router.post("/{product_id}/extras", response_model=schemas.ProductExtraResponse, status_code=status.HTTP_201_CREATED)
+def create_product_extra(
+    product_id: int,
+    extra: schemas.ProductExtraCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add an extra option to a product."""
+    product = db.query(ProductModel).filter(
+        ProductModel.id == product_id,
+        ProductModel.id_empresa == current_user.id_empresa
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    db_extra = ProductExtraModel(
+        product_id=product_id,
+        id_empresa=current_user.id_empresa,
+        **extra.model_dump()
+    )
+    db.add(db_extra)
+    db.commit()
+    db.refresh(db_extra)
+    return db_extra
+
+
+@router.delete("/extras/{extra_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product_extra(
+    extra_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a product extra."""
+    extra = db.query(ProductExtraModel).filter(
+        ProductExtraModel.id == extra_id,
+        ProductExtraModel.id_empresa == current_user.id_empresa
+    ).first()
+    if not extra:
+        raise HTTPException(status_code=404, detail="Extra no encontrado")
+    db.delete(extra)
+    db.commit()
+    return None
+
+
+# ─────────────────────────────────────────────────────────
+# ── Product Ingredients CRUD ─────────────────────────────
+# ─────────────────────────────────────────────────────────
+
+@router.post("/{product_id}/ingredients", response_model=schemas.ProductIngredientResponse, status_code=status.HTTP_201_CREATED)
+def create_product_ingredient(
+    product_id: int,
+    ingredient: schemas.ProductIngredientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Add an ingredient to a product."""
+    product = db.query(ProductModel).filter(
+        ProductModel.id == product_id,
+        ProductModel.id_empresa == current_user.id_empresa
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    db_ingredient = ProductIngredientModel(
+        product_id=product_id,
+        id_empresa=current_user.id_empresa,
+        **ingredient.model_dump()
+    )
+    db.add(db_ingredient)
+    db.commit()
+    db.refresh(db_ingredient)
+    return db_ingredient
+
+
+@router.delete("/ingredients/{ingredient_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product_ingredient(
+    ingredient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a product ingredient."""
+    ingredient = db.query(ProductIngredientModel).filter(
+        ProductIngredientModel.id == ingredient_id,
+        ProductIngredientModel.id_empresa == current_user.id_empresa
+    ).first()
+    if not ingredient:
+        raise HTTPException(status_code=404, detail="Ingrediente no encontrado")
+    db.delete(ingredient)
+    db.commit()
     return None

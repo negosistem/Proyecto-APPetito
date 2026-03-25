@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2, Mail, Phone, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,6 +18,15 @@ export function CustomerCreateModal({ isOpen, onClose, onCustomerCreated }: Cust
         phone: '',
         address: ''
     });
+
+    // Handle ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        if (isOpen) window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isOpen, onClose]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -59,7 +68,7 @@ export function CustomerCreateModal({ isOpen, onClose, onCustomerCreated }: Cust
 
                         <form onSubmit={handleSubmit} className="p-6 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo *</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Nombre Completo*</label>
                                 <input
                                     required
                                     value={newCustomer.name}
@@ -90,7 +99,8 @@ export function CustomerCreateModal({ isOpen, onClose, onCustomerCreated }: Cust
                                         value={newCustomer.phone}
                                         onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })}
                                         className="w-full pl-10 pr-10 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-orange-500"
-                                        placeholder="+123456789"
+                                        placeholder="809-000-0000"
+                                        maxLength={10}
                                     />
                                     <button
                                         type="button"

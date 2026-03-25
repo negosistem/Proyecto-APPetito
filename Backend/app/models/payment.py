@@ -9,14 +9,19 @@ class PaymentMethod(str, enum.Enum):
     CARD = "CARD"
     TRANSFER = "TRANSFER"
 
+class PaymentStatus(str, enum.Enum):
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+
 class Payment(Base):
     __tablename__ = "payments"
     
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
     
-    # Invoice number - unique identifier for the transaction
-    invoice_number = Column(String(50), unique=True, nullable=False, index=True)
+    # Factura number - unique identifier for the transaction (Alembic handles migration from legacy)
+    numero_factura = Column(String(50), unique=True, nullable=False, index=True)
+    status = Column(SAEnum(PaymentStatus), default=PaymentStatus.CONFIRMED, nullable=False)
     
     # Montos
     subtotal = Column(Numeric(10, 2), nullable=False)
@@ -40,3 +45,4 @@ class Payment(Base):
     # Relaciones
     order = relationship("Order", back_populates="payment")
     processed_by_user = relationship("User")
+    credit_note = relationship("CreditNote", back_populates="payment", uselist=False)

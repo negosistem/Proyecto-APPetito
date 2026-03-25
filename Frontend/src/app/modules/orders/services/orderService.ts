@@ -43,6 +43,8 @@ export interface OrderCreate {
         product_id: number;
         quantity: number;
         notes?: string;
+        extras_ids?: number[];
+        removed_ingredient_ids?: number[];
     }[];
 }
 

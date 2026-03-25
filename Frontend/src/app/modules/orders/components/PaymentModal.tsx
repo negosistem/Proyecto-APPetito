@@ -88,11 +88,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, ord
                 amount_received: paymentMethod === 'cash' ? parseFloat(amountReceived) : null
             });
 
-            setInvoiceNumber(data.invoice_number);
+            setInvoiceNumber(data.numero_factura);
             setPaymentData(data);
             setPaymentSuccess(true);
             setShowSuccessModal(true);
-            toast.success(`Pago procesado exitosamente - Factura: ${data.invoice_number}`);
+            toast.success(`Pago procesado exitosamente - Factura: ${data.numero_factura}`);
 
             // We no longer auto-close here, the success modal handles it or the user closes it
             onSuccess();

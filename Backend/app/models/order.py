@@ -1,7 +1,7 @@
 import enum
-from sqlalchemy import Column, Integer, String, Float, Numeric, ForeignKey, DateTime, Enum as SAEnum
+from sqlalchemy import Column, Integer, String, Float, Numeric, ForeignKey, DateTime, Boolean, Enum as SAEnum
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+ from sqlalchemy.sql import func
 from app.db.session import Base
 from app.models.table import Table
 from app.models.product import Product
@@ -41,6 +41,7 @@ class Order(Base):
     tip = Column(Numeric(10, 2), default=0)       # Optional tip (e.g., 10%)
     discount = Column(Numeric(10, 2), default=0)  # Optional discount
     total = Column(Numeric(10, 2), default=0)     # subtotal + tax + tip - discount
+    aplica_impuesto = Column(Boolean, default=True) # Manual tax toggle
     
     customer_name = Column(String, nullable=True)
     

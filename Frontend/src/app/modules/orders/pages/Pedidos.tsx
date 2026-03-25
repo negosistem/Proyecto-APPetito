@@ -12,6 +12,7 @@ import { Receipt as ReceiptComponent } from '../components/Receipt';
 import { Receipt as ReceiptData } from '../../payments/services/paymentService';
 import { CustomerCreateModal } from '../components/CustomerCreateModal';
 import { OrderDetailModal } from '../components/OrderDetailModal';
+import { ProductCustomizationModal, CustomizedProduct } from '../components/ProductCustomizationModal';
 import { formatNumber } from '@/lib/formatNumber';
 
 export default function Pedidos() {
@@ -54,13 +55,18 @@ export default function Pedidos() {
   const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState<number | null>(null);
 
+  // Customization Modal States
+  const [isCustomizationModalOpen, setIsCustomizationModalOpen] = useState(false);
+  const [selectedProductForCustomization, setSelectedProductForCustomization] = useState<Product | null>(null);
+
   // New Order State
   const [newOrder, setNewOrder] = useState({
     customer_name: '',
     customer_id: null as number | null,
     table_id: 'null', // 'null' for Takeaway, number for specific table
     items: [] as any[],
-    apply_tip: false
+    apply_tip: false,
+    aplica_impuesto: true
   });
   const [isParaLlevar, setIsParaLlevar] = useState(false);
 
@@ -139,16 +145,19 @@ export default function Pedidos() {
         customer_id: newOrder.customer_id,
         table_id: (newOrder.table_id === 'null' || newOrder.table_id === 'para_llevar') ? null : parseInt(newOrder.table_id),
         items: newOrder.items.map((item: any) => ({
-          product_id: item.id,
+          product_id: item.product_id || item.id,
           quantity: item.quantity,
-          notes: item.notes || null
+          notes: item.notes || null,
+          extras_ids: item.extras_ids || [],
+          removed_ingredient_ids: item.removed_ingredient_ids || []
         })),
-        apply_tip: newOrder.apply_tip
+        apply_tip: newOrder.apply_tip,
+        aplica_impuesto: newOrder.aplica_impuesto
       };
       await orderService.createOrder(payload);
       toast.success('✅ Orden creada y enviada a cocina');
       setIsModalOpen(false);
-      setNewOrder({ customer_name: '', customer_id: null, table_id: 'null', items: [], apply_tip: false });
+      setNewOrder({ customer_name: '', customer_id: null, table_id: 'null', items: [], apply_tip: false, aplica_impuesto: true });
       setIsParaLlevar(false);
       setSelectedCategory('Todas');
       fetchData();
@@ -160,20 +169,46 @@ export default function Pedidos() {
     }
   };
 
-  const addItemToOrder = (product: Product) => {
-    setNewOrder(prev => {
-      const existing = prev.items.find((i: any) => i.id === product.id);
-      if (existing) {
-        return {
-          ...prev,
-          items: prev.items.map((i: any) => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i)
-        };
-      }
-      return {
-        ...prev,
-        items: [...prev.items, { ...product, quantity: 1, notes: '' }]
-      };
+  const handleProductClick = (product: Product) => {
+    setSelectedProductForCustomization(product);
+    setIsCustomizationModalOpen(true);
+  };
+
+  const handleAddCustomizedProduct = (customized: CustomizedProduct) => {
+    const defaultNotes = customized.notes || undefined;
+    
+    // Check if identical item already exists to increment quantity
+    const existingItemIndex = newOrder.items.findIndex((item: any) => {
+       const sameId = (item.product_id || item.id) === customized.product.id;
+       const sameNotes = item.notes === defaultNotes;
+       const sameExtras = JSON.stringify(item.extras_ids || []) === JSON.stringify(customized.extras_ids || []);
+       const sameRemoved = JSON.stringify(item.removed_ingredient_ids || []) === JSON.stringify(customized.removed_ingredient_ids || []);
+       return sameId && sameNotes && sameExtras && sameRemoved;
     });
+
+    if (existingItemIndex >= 0) {
+      setNewOrder(prev => {
+        const items = [...prev.items];
+        items[existingItemIndex].quantity += customized.quantity;
+        return { ...prev, items };
+      });
+    } else {
+      setNewOrder(prev => ({
+        ...prev,
+        items: [...prev.items, {
+          id: Date.now() + Math.random(), // Temp ID
+          product_id: customized.product.id,
+          name: customized.product.name,
+          quantity: customized.quantity,
+          price: customized.final_price,
+          notes: defaultNotes,
+          extras_ids: customized.extras_ids,
+          removed_ingredient_ids: customized.removed_ingredient_ids,
+          extras_names: customized.extras_names,
+          removed_ingredient_names: customized.removed_ingredient_names
+        }]
+      }));
+    }
   };
 
   const updateItemQuantity = (id: number, delta: number) => {
@@ -267,7 +302,7 @@ export default function Pedidos() {
 
   // Calculate order totals
   const subtotal = newOrder.items.reduce((acc: number, i: any) => acc + (i.price * i.quantity), 0);
-  const tax = subtotal * (taxRate / 100);
+  const tax = newOrder.aplica_impuesto ? subtotal * (taxRate / 100) : 0;
   const tip = newOrder.apply_tip ? subtotal * 0.10 : 0;
   const total = subtotal + tax + tip;
 
@@ -372,6 +407,11 @@ export default function Pedidos() {
                             <CreditCard className="w-4 h-4" />
                           </button>
                         )}
+                        {pedido.status === 'paid' ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700 cursor-default">
+                            🔒 Pagado
+                          </span>
+                        ) : (
                         <select
                           value={pedido.status}
                           onChange={(e) => handleStatusUpdate(pedido.id, e.target.value as OrderStatus)}
@@ -398,6 +438,7 @@ export default function Pedidos() {
                             <option key={s.value} value={s.value}>{s.label}</option>
                           ))}
                         </select>
+                        )}
                       </div>
                     </td>
                   </motion.tr>
@@ -593,7 +634,7 @@ export default function Pedidos() {
                     {filteredProducts.map(product => (
                       <button
                         key={product.id}
-                        onClick={() => addItemToOrder(product)}
+                        onClick={() => handleProductClick(product)}
                         className="p-3 border border-slate-200 rounded-xl hover:border-orange-500 hover:bg-orange-50 transition-all text-left group bg-white shadow-sm flex flex-col h-24 justify-between"
                       >
                         <div className="font-semibold text-slate-900 group-hover:text-orange-600 text-sm line-clamp-2 leading-tight" title={product.name}>{product.name}</div>
@@ -623,12 +664,19 @@ export default function Pedidos() {
                       newOrder.items.map((item: any) => (
                         <div key={item.id} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm flex flex-col gap-2">
                           <div className="flex justify-between items-start gap-2">
-                            <span className="text-sm font-medium text-slate-900 line-clamp-2 leading-tight">{item.name}</span>
+                            <span className="text-sm font-medium text-slate-900 line-clamp-2 leading-tight">{item.name || item.product_name}</span>
                             <button onClick={() => removeItemFromOrder(item.id)} className="text-red-400 hover:text-red-600 p-0.5 hover:bg-red-50 rounded">
                               <Trash className="w-4 h-4" />
                             </button>
                           </div>
-                          <div className="flex items-center justify-between">
+                          {(item.extras_names?.length > 0 || item.removed_ingredient_names?.length > 0 || item.notes) && (
+                            <div className="text-xs text-slate-500 space-y-0.5 mt-0.5 border-l-2 border-orange-200 pl-2">
+                              {item.extras_names?.map((n: string, i: number) => <div key={`e-${i}`}>+ {n}</div>)}
+                              {item.removed_ingredient_names?.map((n: string, i: number) => <div key={`r-${i}`} className="text-red-400">- Sin {n}</div>)}
+                              {item.notes && <div className="text-slate-600 italic mt-0.5">"{item.notes}"</div>}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between mt-1">
                             <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-1">
                               <button onClick={() => updateItemQuantity(item.id, -1)} className="w-6 h-6 flex items-center justify-center bg-white rounded shadow-sm border text-slate-600 hover:text-orange-600 active:scale-95">
                                 <Minus className="w-3 h-3" />
@@ -652,7 +700,10 @@ export default function Pedidos() {
                       <span className="font-medium text-right">{formatNumber(subtotal)}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm text-slate-600">
-                      <span>Impuesto ({taxRate}%)</span>
+                      <label className="flex items-center gap-2 cursor-pointer hover:text-slate-800">
+                        <input type="checkbox" checked={newOrder.aplica_impuesto} onChange={e => setNewOrder({ ...newOrder, aplica_impuesto: e.target.checked })} className="rounded text-orange-500 focus:ring-orange-500" />
+                        <span>Aplicar impuesto ({taxRate}%)</span>
+                      </label>
                       <span className="font-medium text-right">{formatNumber(tax)}</span>
                     </div>
                     <div className="flex justify-between items-center text-sm text-slate-600">
@@ -711,6 +762,16 @@ export default function Pedidos() {
           setIsOrderDetailModalOpen(false);
           setSelectedOrder(null);
         }}
+        onOrderReopened={() => {
+          fetchData();
+        }}
+      />
+
+      <ProductCustomizationModal
+        isOpen={isCustomizationModalOpen}
+        onClose={() => setIsCustomizationModalOpen(false)}
+        product={selectedProductForCustomization}
+        onConfirm={handleAddCustomizedProduct}
       />
     </div>
   );

@@ -4,7 +4,7 @@
  * Llama POST /api/superadmin/companies/setup
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
     X, Building2, Package, User, ChevronRight, ChevronLeft,
@@ -96,6 +96,15 @@ export const CreateRestaurantModal = ({ isOpen, onClose, onSuccess }: Props) => 
     const [isLoading, setIsLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [successData, setSuccessData] = useState<any>(null);
+
+    // Handle ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') handleClose();
+        };
+        if (isOpen) window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isOpen]);
 
     const currentStepIndex = STEPS.findIndex(s => s.id === step);
 

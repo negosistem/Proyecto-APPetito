@@ -62,6 +62,15 @@ export const CompanyFormModal = ({
         }
     }, [isOpen, companyToEdit, setValue, reset]);
 
+    // Handle ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        if (isOpen) window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isOpen, onClose]);
+
     const onSubmit = async (data: any) => {
         setIsLoading(true);
         try {

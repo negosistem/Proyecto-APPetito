@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -8,10 +9,11 @@ from app.db.session import get_db
 from app.models.order import Order, OrderItem, OrderStatus, OrderItemState
 from app.models.table import Table, TableStatus
 from app.models.product import Product
+from app.models.product_extra import ProductExtra, ProductIngredient
 from app.models.user import User
 from app.modules.orders import schemas
 from app.core.dependencies import get_current_user
-from app.modules.kitchen.ws_manager import manager as ws_manager
+from app.modules.kitchen.ws_manager import manager as ws_manager  # pyre-ignore[21]
 
 router = APIRouter(
     prefix="/orders",
@@ -137,7 +139,8 @@ async def create_order(
         tip=Decimal("0"),
         discount=Decimal("0"),
         total=Decimal("0"),
-        id_empresa=current_user.id_empresa
+        id_empresa=current_user.id_empresa,
+        aplica_impuesto=getattr(order_data, 'aplica_impuesto', True)
     )
     db.add(new_order)
     db.flush()  # Get the order ID
@@ -154,8 +157,31 @@ async def create_order(
                 detail=f"Producto con ID {item_data.product_id} no encontrado"
             )
         
+        # Handle extras and ingredients
+        extras = []
+        extras_total = Decimal("0")
+        if getattr(item_data, 'extras_ids', None):
+            extras = db.query(ProductExtra).filter(ProductExtra.id.in_(item_data.extras_ids)).all()
+            for extra in extras:
+                extras_total += Decimal(str(extra.price))
+        
+        removed_ingredients = []
+        if getattr(item_data, 'removed_ingredient_ids', None):
+            removed_ingredients = db.query(ProductIngredient).filter(ProductIngredient.id.in_(item_data.removed_ingredient_ids)).all()
+
+        # Build combined notes
+        notes_parts = []
+        if getattr(item_data, 'notes', None) and item_data.notes.strip():
+            notes_parts.append(f"Notas: {item_data.notes}")
+        for extra in extras:
+            notes_parts.append(f"+ {extra.name}")
+        for ingredient in removed_ingredients:
+            notes_parts.append(f"- Sin {ingredient.name}")
+        
+        final_notes = "\n".join(notes_parts) if notes_parts else None
+        
         # Calculate item subtotal
-        item_price = Decimal(str(product.price))
+        item_price = Decimal(str(product.price)) + extras_total
         item_subtotal = item_price * item_data.quantity
         
         # Create order item with snapshot and company
@@ -166,7 +192,7 @@ async def create_order(
             quantity=item_data.quantity,
             price=item_price,  # Snapshot
             subtotal=item_subtotal,
-            notes=item_data.notes,
+            notes=final_notes,
             # 🆕 Transfer prep_time
             prep_time_minutes=product.tiempo_preparacion if product.tiempo_preparacion else product.prep_time_minutes, 
             id_empresa=current_user.id_empresa
@@ -190,8 +216,10 @@ async def create_order(
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     
     # Calculate tax using company's tax rate
-    tax_rate = Decimal(str(company.tax_rate)) / Decimal("100")  # Convert percentage to decimal
-    tax = subtotal * tax_rate
+    tax = Decimal("0")
+    if getattr(order_data, 'aplica_impuesto', True):
+        tax_rate = Decimal(str(company.tax_rate)) / Decimal("100")  # Convert percentage to decimal
+        tax = subtotal * tax_rate
     
     # Calculate tip if requested (default 10%)
     tip = Decimal("0")
@@ -319,20 +347,46 @@ async def add_order_items(
         if not product:
             continue # Or raise error
         
+        # Handle extras and ingredients
+        extras = []
+        extras_total = Decimal("0")
+        if getattr(item_data, 'extras_ids', None):
+            extras = db.query(ProductExtra).filter(ProductExtra.id.in_(item_data.extras_ids)).all()
+            for extra in extras:
+                extras_total += Decimal(str(extra.price))
+        
+        removed_ingredients = []
+        if getattr(item_data, 'removed_ingredient_ids', None):
+            removed_ingredients = db.query(ProductIngredient).filter(ProductIngredient.id.in_(item_data.removed_ingredient_ids)).all()
+
+        # Build combined notes
+        notes_parts = []
+        if getattr(item_data, 'notes', None) and item_data.notes.strip():
+            notes_parts.append(f"Notas: {item_data.notes}")
+        for extra in extras:
+            notes_parts.append(f"+ {extra.name}")
+        for ingredient in removed_ingredients:
+            notes_parts.append(f"- Sin {ingredient.name}")
+        
+        final_notes = "\n".join(notes_parts) if notes_parts else None
+        
         # Create OrderItem with company
-        item_total = product.price * item_data.quantity
+        item_price = Decimal(str(product.price)) + extras_total
+        item_subtotal = item_price * item_data.quantity
+        
         new_item = OrderItem(
             order_id=order.id,
             product_id=product.id,
             quantity=item_data.quantity,
-            price=product.price, # Snapshot price
-            notes=item_data.notes,
+            price=item_price, # Snapshot price
+            subtotal=item_subtotal,
+            notes=final_notes,
             # Snapshot prep time from product
             prep_time_minutes=product.tiempo_preparacion if product.tiempo_preparacion else product.prep_time_minutes,
             id_empresa=current_user.id_empresa
         )
         items_to_add.append(new_item)
-        total_added += item_total
+        total_added += float(item_subtotal)
 
     if items_to_add:
         db.add_all(items_to_add)
@@ -358,6 +412,13 @@ def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
+    # Block any modification to already paid orders
+    if order.status == OrderStatus.PAID:
+        raise HTTPException(
+            status_code=400,
+            detail="Este pedido ya ha sido pagado y no puede modificarse"
+        )
+
     if status_update.status:
         if status_update.status in [OrderStatus.PAID, OrderStatus.CANCELLED]:
             order.closed_at = datetime.now()
@@ -371,7 +432,56 @@ def update_order_status(
     db.refresh(order)
     return order
 
-@router.post("/{order_id}/close", response_model=schemas.Order)
+@router.post("/{order_id}/reopen", response_model=schemas.Order)
+def reopen_order(
+    order_id: int,
+    motivo: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Reopen a paid order. Only accessible by admins.
+    Records an AuditLog entry with the reason.
+    """
+    from app.core.dependencies import require_admin
+    from app.models.audit_log import AuditLog
+
+    # Admin-only check via role name
+    if not current_user.role or current_user.role.name.lower() not in ("admin", "super_admin", "administrador"):
+        raise HTTPException(status_code=403, detail="Solo los administradores pueden reabrir pedidos")
+
+    if not motivo or len(motivo.strip()) < 5:
+        raise HTTPException(status_code=422, detail="El motivo debe tener al menos 5 caracteres")
+
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.id_empresa == current_user.id_empresa
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    if order.status != OrderStatus.PAID:
+        raise HTTPException(status_code=400, detail="Solo se pueden reabrir pedidos en estado 'pagado'")
+
+    # Change order status back to pending
+    order.status = OrderStatus.PENDING
+    order.closed_at = None
+
+    # Register audit log
+    audit = AuditLog(
+        user_id=current_user.id,
+        action="order_reopened",
+        entity_type="order",
+        entity_id=order.id,
+        details={"motivo": motivo, "reopened_by": current_user.nombre},
+        id_empresa=current_user.id_empresa
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
 def close_order(
     order_id: int,
     db: Session = Depends(get_db),

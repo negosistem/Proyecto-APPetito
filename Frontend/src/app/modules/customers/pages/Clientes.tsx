@@ -48,7 +48,7 @@ export default function Clientes() {
       setNewCustomer({ name: '', email: '', phone: '', address: '' });
       fetchCustomers();
     } catch (error: any) {
-      toast.error(error.message || 'Error al registrar cliente');
+      toast.error(error.message || 'Error al te');
     } finally {
       setIsSubmitting(false);
     }
@@ -202,7 +202,7 @@ export default function Clientes() {
               className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden"
             >
               <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-900">Registrar Cliente</h2>
+                <h2 className="text-xl font-bold text-slate-900">te</h2>
                 <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-lg">
                   <X className="w-5 h-5 text-slate-400" />
                 </button>

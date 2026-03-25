@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
@@ -38,9 +38,11 @@ class User(Base):
     direccion = Column(String, nullable=True)
     foto = Column(String, nullable=True) # URL or Base64 string
     
-    # Permissions & Access Control
     # Comma-separated list of enabled modules for this user (e.g., "cocina,pedidos,finanzas")
     modules = Column(String, default="", nullable=False)
+    
+    # Custom granular permissions for this specific user (overrides role permissions)
+    custom_permissions = Column(JSON, nullable=True)
     
     # Status
     is_active = Column(Boolean, default=True)

@@ -13,12 +13,13 @@ export interface Order {
     id: number;
     table_id: number;
     user_id: number;
-    status: 'Abierto' | 'En Preparación' | 'Entregado' | 'Cerrado' | 'Cancelado' | 'new' | 'accepted' | 'preparing' | 'ready' | 'served' | 'pending' | 'paid';
+    status: 'Abierto' | 'En Preparación' | 'Entregado' | 'Cerrado' | 'Cancelado' | 'new' | 'accepted' | 'preparing' | 'ready' | 'served' | 'pending' | 'paid' | 'cancelled';
     subtotal?: number;
     tax?: number;
     tip?: number;
     total: number;
     customer_name?: string | null;
+    aplica_impuesto?: boolean;
     created_at: string;
     items: OrderItem[];
 }
@@ -26,6 +27,7 @@ export interface Order {
 export interface OrderCreate {
     table_id: number;
     customer_name?: string;
+    aplica_impuesto?: boolean;
 }
 
 export interface OrderItemCreate {

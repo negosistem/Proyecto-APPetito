@@ -7,7 +7,7 @@ import {
   ReservationFilters
 } from '../types/reservation';
 
-const BASE_URL = '/reservations';
+const BASE_URL = '/api/reservations';
 
 export const reservationsService = {
   // GET /reservations/?fecha=...&status=...&search=...
@@ -72,7 +72,7 @@ export const reservationsService = {
 
   // Tables API Endpoint Fetching mapped for component usage
   getTables: async (): Promise<{id: number; nombre: string; capacity: number; status: string}[]> => {
-    const data = await api.get<any[]>('/tables/');
+    const data = await api.get<any[]>('/api/tables/');
     return data.map((t: any) => ({
       id: t.id,
       nombre: t.number, // Mapeando number -> nombre

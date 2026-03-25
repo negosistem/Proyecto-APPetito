@@ -22,6 +22,8 @@ class OrderItemBase(BaseModel):
     product_id: int
     quantity: int = 1
     notes: Optional[str] = None
+    extras_ids: Optional[List[int]] = []
+    removed_ingredient_ids: Optional[List[int]] = []
 
 class OrderItemCreate(OrderItemBase):
     pass
@@ -42,14 +44,17 @@ class OrderBase(BaseModel):
     table_id: Optional[int] = None
     customer_id: Optional[int] = None
     customer_name: Optional[str] = None
+    aplica_impuesto: Optional[bool] = True
 
 class OrderCreate(OrderBase):
     items: List[OrderItemCreate] = []  # Create order with items in one request (optional)
     apply_tip: Optional[bool] = False  # Whether to apply tip (default 10%)
+    aplica_impuesto: Optional[bool] = True  # Whether to apply tax
 
 class OrderUpdate(BaseModel):
     status: Optional[OrderStatus] = None
     customer_name: Optional[str] = None
+    aplica_impuesto: Optional[bool] = None
 
 class Order(OrderBase):
     id: int

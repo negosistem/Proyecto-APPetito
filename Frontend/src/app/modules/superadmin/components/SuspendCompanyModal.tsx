@@ -2,7 +2,7 @@
  * SuspendCompanyModal - Modal para suspender empresa con motivo
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Loader2, Ban } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { superadminService } from '../services/superadminService';
@@ -25,6 +25,15 @@ export const SuspendCompanyModal = ({
 }: SuspendCompanyModalProps) => {
     const [reason, setReason] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+
+    // Handle ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        if (isOpen) window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isOpen, onClose]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

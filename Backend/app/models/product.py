@@ -13,6 +13,7 @@ class Product(Base):
     category = Column(String, index=True, nullable=False) # e.g. Entradas, Platos principales, Postres, Bebidas
     image_url = Column(String, nullable=True)
     video_url = Column(String, nullable=True)
+    default_notes = Column(String, nullable=True, comment="Sugerencias o instrucciones por defecto (ej. Servir caliente)")
     prep_time_minutes = Column(Integer, default=10)
     is_active = Column(Boolean, default=True)
     tiempo_preparacion = Column(Integer, nullable=True, default=None, comment="Tiempo estimado de preparación en cocina (minutos)")
@@ -22,6 +23,8 @@ class Product(Base):
     empresa = relationship("Company")
 
     images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan")
+    extras = relationship("ProductExtra", back_populates="product", cascade="all, delete-orphan")
+    ingredients = relationship("ProductIngredient", back_populates="product", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Product(name={self.name}, price={self.price})>"

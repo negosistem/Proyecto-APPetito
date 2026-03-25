@@ -43,6 +43,15 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
         }
     }, [isOpen, table]);
 
+    // Handle ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        if (isOpen) window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isOpen, onClose]);
+
     const loadOrder = async () => {
         if (!table) return;
         setLoading(true);

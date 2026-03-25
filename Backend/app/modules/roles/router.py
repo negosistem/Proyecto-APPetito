@@ -13,10 +13,13 @@ router = APIRouter(prefix="/roles", tags=["Roles"])
 @router.get("/", response_model=List[schemas.RoleRead])
 def get_all_roles(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
-    """Get all active roles. Available to all authenticated users."""
-    roles = db.query(Role).filter(Role.is_active == True).all()
+    """Get all active roles for the current company. Admin only."""
+    roles = db.query(Role).filter(
+        Role.is_active == True,
+        Role.id_empresa == current_user.id_empresa
+    ).all()
     return roles
 
 @router.post("/", response_model=schemas.RoleRead, status_code=status.HTTP_201_CREATED)
@@ -26,15 +29,20 @@ def create_role(
     current_user: User = Depends(require_admin)
 ):
     """Create a new role. Admin only."""
-    # Check if role name already exists
-    existing = db.query(Role).filter(Role.name == role_in.name).first()
+    # Check if role name already exists in this company
+    existing = db.query(Role).filter(
+        Role.name == role_in.name,
+        Role.id_empresa == current_user.id_empresa
+    ).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El rol ya existe"
+            detail="El rol ya existe en esta empresa"
         )
     
-    db_role = Role(**role_in.model_dump())
+    role_data = role_in.model_dump()
+    role_data["id_empresa"] = current_user.id_empresa
+    db_role = Role(**role_data)
     db.add(db_role)
     db.commit()
     db.refresh(db_role)
@@ -46,8 +54,11 @@ def get_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get role by ID."""
-    role = db.query(Role).filter(Role.id == role_id).first()
+    """Get role by ID within same company."""
+    role = db.query(Role).filter(
+        Role.id == role_id,
+        Role.id_empresa == current_user.id_empresa
+    ).first()
     if not role:
         raise HTTPException(status_code=404, detail="Rol no encontrado")
     return role

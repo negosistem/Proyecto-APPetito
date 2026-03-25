@@ -5,6 +5,7 @@ import { staffService, StaffMember, StaffCreateInput, StaffUpdateInput, StaffSta
 import { rolesService, Role } from '@/app/modules/roles/services/rolesService';
 import { useAuth } from '@/app/modules/auth/context/AuthContext';
 import StatCard from '@/app/shared/components/StatCard';
+import CreateStaffForm from '../components/CreateStaffForm';
 
 export default function Staff() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -529,6 +530,7 @@ export default function Staff() {
                 </button>
               </div>
 
+              {editingStaff ? (
               <form onSubmit={handleSubmit} className="flex flex-col gap-6">
 
                 {/* === VISTA PRINCIPAL: ROLES Y ACCESOS === */}
@@ -805,10 +807,21 @@ export default function Staff() {
                     type="submit"
                     className="px-6 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg hover:shadow-lg transition-shadow font-medium"
                   >
-                    {editingStaff ? 'Actualizar Perfil' : 'Crear Empleado'}
+                    Actualizar Perfil
                   </button>
                 </div>
               </form>
+              ) : (
+                <CreateStaffForm 
+                  onSuccess={() => {
+                    handleCloseModal();
+                    refreshData();
+                    setSuccessMessage('Empleado creado exitosamente');
+                    setTimeout(() => setSuccessMessage(null), 3000);
+                  }}
+                  onCancel={handleCloseModal}
+                />
+              )}
             </motion.div>
           </motion.div>
         )}

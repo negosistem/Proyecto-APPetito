@@ -188,24 +188,17 @@ export default function Mesas() {
         )
       }
 
-      {/* Mesas Grid — Ordered and synchronized by table ID */}
+      {/* Mesas Grid — Ordered sequentially */}
       <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-3">
-        {Array.from({ length: Math.max(30, tables.length ? Math.max(...tables.map(t => t.id)) : 0) }, (_, i) => i + 1).map((num) => {
-          const mesa = tables.find(t => t.id === num);
-
-          // Empty slot — table not registered yet
-          if (!mesa) {
-            return (
-              <div
-                key={`slot-${num}`}
-                className="aspect-square rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center opacity-40"
-              >
-                <span className="text-slate-300 text-sm font-bold">{num}</span>
-              </div>
-            );
-          }
-
-          return (
+        {[...tables]
+          // Sort logically by number so "2" comes before "10"
+          .sort((a, b) => {
+            const numA = parseInt(a.number, 10);
+            const numB = parseInt(b.number, 10);
+            if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+            return a.number.localeCompare(b.number);
+          })
+          .map((mesa) => (
             <motion.div
               key={mesa.id}
               whileHover={{ scale: 1.03 }}
@@ -259,8 +252,20 @@ export default function Mesas() {
                     mesa.status === 'reservada' ? 'Reservada' : 'N/A'}
               </span>
             </motion.div>
-          );
-        })}
+          ))}
+
+        {/* Optional Add Table Button at the end of the grid for quick access */}
+        {isAdminOrManager && (
+          <motion.div
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleCreate}
+            className="aspect-square rounded-xl border-2 border-dashed border-orange-200 flex flex-col items-center justify-center opacity-70 hover:opacity-100 hover:border-orange-400 hover:bg-orange-50 cursor-pointer transition-all text-orange-500"
+          >
+            <Plus className="w-8 h-8 mb-1" />
+            <span className="text-xs font-bold">Nueva Mesa</span>
+          </motion.div>
+        )}
       </div>
 
 

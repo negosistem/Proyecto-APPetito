@@ -19,6 +19,7 @@ from app.models.table import Table
 from app.models.order import Order
 from app.models.payment import Payment
 from app.utils.security import get_password_hash
+from app.modules.roles.service import seed_default_roles
 from . import schemas
 
 router = APIRouter(prefix="/superadmin", tags=["Super Admin"])
@@ -155,24 +156,10 @@ def setup_restaurant(
         db.flush()  # Obtener new_company.id sin commit
 
         # ── 2. Garantizar que existen los roles base ───────────────────────
-        base_roles = [
-            ("admin", "Administrador del restaurante"),
-            ("gerente", "Gerente de operaciones"),
-            ("cajero", "Cajero encargado de cobros"),
-            ("mesero", "Mesero atención a clientes"),
-            ("cocina", "Personal de cocina"),
-        ]
-        role_map = {}
-        for role_name, role_desc in base_roles:
-            role = db.query(Role).filter(Role.name == role_name).first()
-            if not role:
-                role = Role(name=role_name, description=role_desc, is_active=True)
-                db.add(role)
-                db.flush()
-            role_map[role_name] = role
+        seed_default_roles(db, new_company.id, commit=False)
 
         # ── 3. Crear usuario administrador ────────────────────────────────
-        admin_role = role_map["admin"]
+        admin_role = db.query(Role).filter(Role.name == "admin", Role.id_empresa == new_company.id).first()
         all_modules = "mesas,pedidos,cocina,finanzas,menu,clientes,staff,reportes,configuracion"
         new_admin = User(
             nombre=data.admin.nombre,

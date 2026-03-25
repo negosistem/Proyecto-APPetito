@@ -37,4 +37,5 @@ export interface ReservationFilters {
   search?:  string;
   fecha?:   string;  // YYYY-MM-DD
   status?:  ReservationStatus | '';
+  party_size?: string; 
 }

@@ -9,3 +9,4 @@ from app.models.audit_log import AuditLog
 from app.models.expense import Expense, ExpenseCategory
 from app.models.company import Company
 from app.models.reservation import Reservation, ReservationStatus
+from app.models.product_extra import ProductExtra, ProductIngredient

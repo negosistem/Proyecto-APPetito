@@ -9,6 +9,7 @@ from app.models.role import Role
 from app.modules.staff import schemas
 from app.core.dependencies import get_current_user, require_admin
 from app.utils.security import get_password_hash
+from app.modules.staff.service import crear_empleado
 
 router = APIRouter(
     prefix="/staff",
@@ -64,46 +65,7 @@ def create_staff_member(
     Create a new staff member.
     Requires admin role.
     """
-    # Validate role_id exists
-    role = db.query(Role).filter(Role.id == staff_in.role_id).first()
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El rol especificado no existe"
-        )
-
-    # Check if email already exists within company
-    existing = db.query(User).filter(
-        User.email == staff_in.email,
-        User.id_empresa == current_user.id_empresa
-    ).first()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El email ya está registrado"
-        )
-    
-    # Hash the password
-    hashed_password = get_password_hash(staff_in.password)
-    
-    # Create new user instance for current company
-    db_staff = User(
-        nombre=staff_in.nombre,
-        email=staff_in.email,
-        password_hash=hashed_password,
-        role_id=staff_in.role_id,
-        turno=staff_in.turno,
-        telefono=staff_in.telefono,
-        modules=",".join(staff_in.modules) if staff_in.modules else "",
-        is_active=staff_in.is_active,
-        id_empresa=current_user.id_empresa
-    )
-    
-    db.add(db_staff)
-    db.commit()
-    db.refresh(db_staff)
-    db.refresh(db_staff, ['role'])
-    return db_staff
+    return crear_empleado(db, staff_in, current_user.id_empresa)
 
 @router.get("/me", response_model=schemas.Staff)
 def get_current_staff(current_user: User = Depends(get_current_user)):

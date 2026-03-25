@@ -2,7 +2,7 @@
  * CreateUserModal - Formulario para crear usuarios de empresa
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { X, Loader2, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -33,6 +33,15 @@ export const CreateUserModal = ({
         reset,
         formState: { errors },
     } = useForm<CreateUserDTO>();
+
+    // Handle ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        if (isOpen) window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isOpen, onClose]);
 
     const onSubmit = async (data: CreateUserDTO) => {
         setIsLoading(true);

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 from app.modules.roles.schemas import RoleRead
 
 # Base Schema: Shared properties
@@ -15,10 +15,13 @@ class StaffBase(BaseModel):
     foto: Optional[str] = None
     is_active: bool = True
 
-# Create Schema: Properties required to create a staff member
 class StaffCreate(StaffBase):
     password: str = Field(..., min_length=6, description="Password must be at least 6 characters")
     modules: List[str] = Field(default_factory=list, description="List of enabled modules")
+    permissions: Optional[dict[str, bool]] = None
+    tipo_empleado: str
+    id_rol: int
+    role_id: Optional[int] = Field(None, description="Overridden by id_rol")
 
 # Update Schema: All fields optional for partial updates
 class StaffUpdate(BaseModel):

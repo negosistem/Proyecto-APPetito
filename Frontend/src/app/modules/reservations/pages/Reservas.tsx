@@ -10,7 +10,7 @@ import {
 import toast from 'react-hot-toast';
 
 import { useReservations } from '../hooks/useReservations';
-import { Reservation, ReservationCreate, ReservationUpdate, ReservationStatus } from '../types/reservation';
+import { Reservation, ReservationCreate, ReservationUpdate, ReservationStatus, ReservationFilters } from '../types/reservation';
 import { reservationsService } from '../services/reservationService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,10 +27,10 @@ interface SortConfig {
 
 const estadoConfig: Record<ReservationStatus, { label: string; bg: string; text: string; dot: string; icon: React.ReactNode }> = {
   confirmada: { label: 'Confirmada', bg: 'bg-green-100', text: 'text-green-700', dot: 'bg-green-500', icon: <CheckCircle className="w-3.5 h-3.5" /> },
-  pendiente:  { label: 'Pendiente',  bg: 'bg-yellow-100', text: 'text-yellow-700', dot: 'bg-yellow-500', icon: <AlertCircle className="w-3.5 h-3.5" /> },
-  cancelada:  { label: 'Cancelada',  bg: 'bg-red-100',    text: 'text-red-700',    dot: 'bg-red-500',    icon: <XCircle className="w-3.5 h-3.5" /> },
-  completada: { label: 'Completada', bg: 'bg-blue-100',   text: 'text-blue-700',   dot: 'bg-blue-500',   icon: <CalendarCheck className="w-3.5 h-3.5" /> },
-  no_show: { label: 'No Show', bg: 'bg-gray-100',   text: 'text-gray-700',   dot: 'bg-gray-500',   icon: <XCircle className="w-3.5 h-3.5" /> }
+  pendiente: { label: 'Pendiente', bg: 'bg-yellow-100', text: 'text-yellow-700', dot: 'bg-yellow-500', icon: <AlertCircle className="w-3.5 h-3.5" /> },
+  cancelada: { label: 'Cancelada', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-500', icon: <XCircle className="w-3.5 h-3.5" /> },
+  completada: { label: 'Completada', bg: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-500', icon: <CalendarCheck className="w-3.5 h-3.5" /> },
+  no_show: { label: 'No Show', bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-500', icon: <XCircle className="w-3.5 h-3.5" /> }
 };
 
 const RESTAURANT_CAPACITY = 60;
@@ -41,7 +41,7 @@ const ITEMS_PER_PAGE = 8;
 const formatFecha = (s: string) => {
   if (!s) return '';
   const [y, m, d] = s.split('T')[0].split('-');
-  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   return `${parseInt(d)} ${meses[parseInt(m) - 1]} ${y}`;
 };
 
@@ -70,8 +70,8 @@ function buildCalendarGrid(year: number, month: number): (number | null)[] {
   return grid;
 }
 
-const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
 // ─── EstadoBadge ──────────────────────────────────────────────────────────────
 
@@ -130,14 +130,14 @@ interface CreateModalProps {
 
 const CreateModal: React.FC<CreateModalProps> = ({ onClose, onSave, editing, availableTables }) => {
   const [form, setForm] = useState({
-    cliente:  editing?.customer_name  || '',
+    cliente: editing?.customer_name || '',
     telefono: editing?.customer_phone || '',
-    fecha:    extractDate(editing?.reservation_date)    || TODAY,
-    hora:     extractTime(editing?.reservation_date)    || '19:00',
+    fecha: extractDate(editing?.reservation_date) || TODAY,
+    hora: extractTime(editing?.reservation_date) || '19:00',
     personas: editing?.party_size || 2,
-    mesa:     editing?.table_name || '',
-    estado:   (editing?.status  || 'pendiente') as ReservationStatus,
-    notas:    editing?.notes    || '',
+    mesa: editing?.table_name || '',
+    estado: (editing?.status || 'pendiente') as ReservationStatus,
+    notas: editing?.notes || '',
   });
 
   const suggestedMesas = availableTables.filter(m => m.capacity >= form.personas && m.status !== 'OCUPADA');
@@ -147,7 +147,7 @@ const CreateModal: React.FC<CreateModalProps> = ({ onClose, onSave, editing, ava
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.cliente || !form.telefono || !form.fecha || !form.hora || !form.mesa) return;
-    
+
     // Find table id
     const selectedTable = availableTables.find(t => t.nombre === form.mesa);
     const tableId = selectedTable ? selectedTable.id : null;
@@ -156,14 +156,13 @@ const CreateModal: React.FC<CreateModalProps> = ({ onClose, onSave, editing, ava
     const combinedDate = new Date(`${form.fecha}T${form.hora}:00`).toISOString();
 
     const reservationData: ReservationCreate = {
-       customer_name: form.cliente,
-       customer_phone: form.telefono,
-       reservation_date: combinedDate,
-       party_size: Number(form.personas),
-       id_table: tableId,
-       status: form.estado,
-       notes: form.notas,
-       arrival_time: combinedDate
+      customer_name: form.cliente,
+      customer_phone: form.telefono,
+      reservation_date: combinedDate,
+      party_size: Number(form.personas),
+      id_table: tableId,
+      status: form.estado,
+      notes: form.notas
     };
 
     onSave(reservationData, !!editing, editing?.id);
@@ -216,7 +215,8 @@ const CreateModal: React.FC<CreateModalProps> = ({ onClose, onSave, editing, ava
                 <input
                   type="text" required value={form.telefono}
                   onChange={e => set('telefono', e.target.value)}
-                  placeholder="+34 600 000 000"
+                  placeholder="809-000-0000"
+                  maxLength={10}
                   className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-transparent transition-all"
                 />
               </div>
@@ -314,11 +314,10 @@ const CreateModal: React.FC<CreateModalProps> = ({ onClose, onSave, editing, ava
                   <button
                     key={est} type="button"
                     onClick={() => set('estado', est)}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border-2 transition-all ${
-                      form.estado === est
-                        ? `${cfg.bg} ${cfg.text} border-current`
-                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                    }`}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border-2 transition-all ${form.estado === est
+                      ? `${cfg.bg} ${cfg.text} border-current`
+                      : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                      }`}
                   >
                     {cfg.icon}
                     {cfg.label}
@@ -375,15 +374,15 @@ const DetailModal: React.FC<{ reserva: Reservation; onClose: () => void; onEdit:
     if (reserva.id_customer) {
       reservationsService.getAll({} as any)
       fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/reservations/?id_customer=${reserva.id_customer}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+        headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
       })
-      .then(r => r.json())
-      .then(data => {
-         const past = data.filter((x: any) => x.id !== reserva.id).slice(0, 5);
-         setHistorial(past);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+        .then(r => r.json())
+        .then(data => {
+          const past = data.filter((x: any) => x.id !== reserva.id).slice(0, 5);
+          setHistorial(past);
+        })
+        .catch(console.error)
+        .finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
@@ -599,13 +598,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ reservas, year, month, onPr
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => onDayClick(day)}
-                  className={`relative p-2 rounded-lg text-sm transition-all min-h-[52px] flex flex-col items-center gap-1 ${
-                    isSelected
-                      ? 'bg-gradient-to-br from-orange-500 to-red-500 text-white shadow-md'
-                      : today
+                  className={`relative p-2 rounded-lg text-sm transition-all min-h-[52px] flex flex-col items-center gap-1 ${isSelected
+                    ? 'bg-gradient-to-br from-orange-500 to-red-500 text-white shadow-md'
+                    : today
                       ? 'bg-orange-50 border-2 border-orange-300 text-orange-700'
                       : 'hover:bg-slate-50 text-slate-700'
-                  }`}
+                    }`}
                 >
                   <span className="font-medium">{day}</span>
                   {dayReservas.length > 0 && (
@@ -716,23 +714,23 @@ export default function Reservas() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   // Calendar
-  const [calYear, setCalYear]   = useState(new Date().getFullYear());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
-  const [calDay, setCalDay]     = useState<number | null>(new Date().getDate());
+  const [calDay, setCalDay] = useState<number | null>(new Date().getDate());
 
   // Modals
-  const [showCreate, setShowCreate]   = useState(false);
-  const [editingRes, setEditingRes]   = useState<Reservation | null>(null);
-  const [detailRes, setDetailRes]     = useState<Reservation | null>(null);
-  const [cancelId, setCancelId]       = useState<number | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingRes, setEditingRes] = useState<Reservation | null>(null);
+  const [detailRes, setDetailRes] = useState<Reservation | null>(null);
+  const [cancelId, setCancelId] = useState<number | null>(null);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const hoyReservas   = reservations.filter(r => extractDate(r.reservation_date) === TODAY);
-  const confirmadas   = reservations.filter(r => r.status === 'confirmada').length;
-  const pendientes    = reservations.filter(r => r.status === 'pendiente').length;
-  const canceladas    = reservations.filter(r => r.status === 'cancelada').length;
-  const personasHoy   = hoyReservas.reduce((s, r) => s + r.party_size, 0);
-  const ocupacion     = Math.round((personasHoy / RESTAURANT_CAPACITY) * 100);
+  const hoyReservas = reservations.filter(r => extractDate(r.reservation_date) === TODAY);
+  const confirmadas = reservations.filter(r => r.status === 'confirmada').length;
+  const pendientes = reservations.filter(r => r.status === 'pendiente').length;
+  const canceladas = reservations.filter(r => r.status === 'cancelada').length;
+  const personasHoy = hoyReservas.reduce((s, r) => s + r.party_size, 0);
+  const ocupacion = Math.round((personasHoy / RESTAURANT_CAPACITY) * 100);
 
   // ── Filtering & Sorting ────────────────────────────────────────────────────
   const sortedReservations = useMemo(() => {
@@ -751,7 +749,7 @@ export default function Reservas() {
         av = (a as any)[sort.key] || '';
         bv = (b as any)[sort.key] || '';
       }
-      
+
       if (av < bv) return sort.dir === 'asc' ? -1 : 1;
       if (av > bv) return sort.dir === 'asc' ? 1 : -1;
       return 0;
@@ -760,13 +758,13 @@ export default function Reservas() {
   }, [reservations, sort]);
 
   const totalPages = Math.ceil(sortedReservations.length / ITEMS_PER_PAGE);
-  const paginated  = sortedReservations.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const paginated = sortedReservations.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   const hasFilters = !!(filters.search || filters.fecha || filters.status || filters.party_size);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const setFilter = (key: keyof Filters, val: string) => {
-    setFilters(f => ({ ...f, [key]: val }));
+  const setFilter = (key: keyof ReservationFilters, val: string) => {
+    setFilters({ ...filters, [key]: val } as any);
     setPage(1);
   };
 
@@ -803,7 +801,7 @@ export default function Reservas() {
   const handleChangeEstado = async (id: number, estado: ReservationStatus) => {
     try {
       await changeStatus(id, estado);
-    } catch (e: any) {}
+    } catch (e: any) { }
   };
 
   const handleCancelConfirm = async () => {
@@ -811,7 +809,7 @@ export default function Reservas() {
       try {
         await cancelReservation(cancelId);
         setCancelId(null);
-      } catch (e) {}
+      } catch (e) { }
     }
   };
 
@@ -872,12 +870,12 @@ export default function Reservas() {
 
       {/* ── Stats Grid ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard title="Reservas hoy"   value={hoyReservas.length} sub={`De ${reservations.length} totales`} icon={<CalendarDays className="w-5 h-5" />} iconBg="bg-blue-100"   iconColor="text-blue-600"   delay={0.0} />
-        <StatCard title="Confirmadas"    value={confirmadas}        icon={<CheckCircle className="w-5 h-5" />}   iconBg="bg-green-100"  iconColor="text-green-600"  delay={0.05} />
-        <StatCard title="Pendientes"     value={pendientes}         icon={<AlertCircle className="w-5 h-5" />}   iconBg="bg-yellow-100" iconColor="text-yellow-600" delay={0.1} />
-        <StatCard title="Canceladas"     value={canceladas}         icon={<XCircle className="w-5 h-5" />}       iconBg="bg-red-100"    iconColor="text-red-600"    delay={0.15} />
-        <StatCard title="Personas hoy"   value={personasHoy}        sub="Comensales confirmados" icon={<Users className="w-5 h-5" />}    iconBg="bg-purple-100" iconColor="text-purple-600" delay={0.2} />
-        <StatCard title="Ocupación"      value={`${ocupacion}%`}    sub={`Af. ${personasHoy}/${RESTAURANT_CAPACITY}`} icon={<Percent className="w-5 h-5" />}    iconBg="bg-orange-100" iconColor="text-orange-600" delay={0.25} />
+        <StatCard title="Reservas hoy" value={hoyReservas.length} sub={`De ${reservations.length} totales`} icon={<CalendarDays className="w-5 h-5" />} iconBg="bg-blue-100" iconColor="text-blue-600" delay={0.0} />
+        <StatCard title="Confirmadas" value={confirmadas} icon={<CheckCircle className="w-5 h-5" />} iconBg="bg-green-100" iconColor="text-green-600" delay={0.05} />
+        <StatCard title="Pendientes" value={pendientes} icon={<AlertCircle className="w-5 h-5" />} iconBg="bg-yellow-100" iconColor="text-yellow-600" delay={0.1} />
+        <StatCard title="Canceladas" value={canceladas} icon={<XCircle className="w-5 h-5" />} iconBg="bg-red-100" iconColor="text-red-600" delay={0.15} />
+        <StatCard title="Personas hoy" value={personasHoy} sub="Comensales confirmados" icon={<Users className="w-5 h-5" />} iconBg="bg-purple-100" iconColor="text-purple-600" delay={0.2} />
+        <StatCard title="Ocupación" value={`${ocupacion}%`} sub={`Af. ${personasHoy}/${RESTAURANT_CAPACITY}`} icon={<Percent className="w-5 h-5" />} iconBg="bg-orange-100" iconColor="text-orange-600" delay={0.25} />
       </div>
 
       {/* ── Filter Bar ── */}
@@ -940,11 +938,12 @@ export default function Reservas() {
           {/* Clear */}
           <AnimatePresence>
             {hasFilters && (
-               <motion.button
+              <motion.button
+                key="clear-filters-btn"
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                onClick={() => { setFilters({ search: '', fecha: '', status: '' as any, party_size: '' }); setPage(1); }}
+                onClick={() => { setFilters({ search: '', fecha: '', status: '' as any, party_size: '' } as any); setPage(1); }}
                 className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
               >
                 <X className="w-3.5 h-3.5" />
@@ -964,11 +963,10 @@ export default function Reservas() {
               key={btn.id}
               onClick={() => setView(btn.id)}
               whileTap={{ scale: 0.96 }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                view === btn.id
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${view === btn.id
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
             >
               {btn.icon}
               {btn.label}
@@ -980,6 +978,7 @@ export default function Reservas() {
         <AnimatePresence>
           {selectedIds.length > 0 && (
             <motion.div
+              key="bulk-actions-panel"
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -1004,278 +1003,280 @@ export default function Reservas() {
       {isLoading ? (
         <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden min-h-[400px]">
           <div className="flex flex-col items-center justify-center h-full py-20 text-slate-400">
-             <div className="w-8 h-8 border-4 border-slate-200 border-t-orange-500 rounded-full animate-spin mb-4" />
-             <p className="text-sm">Cargando reservas...</p>
+            <div className="w-8 h-8 border-4 border-slate-200 border-t-orange-500 rounded-full animate-spin mb-4" />
+            <p className="text-sm">Cargando reservas...</p>
           </div>
         </div>
       ) : (
-      <>
-      {/* ── CALENDAR VIEW ── */}
-      <AnimatePresence mode="wait">
-        {view === 'calendar' && (
-          <motion.div key="calendar" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            <CalendarView
-              reservas={reservations}
-              year={calYear} month={calMonth}
-              onPrev={calPrev} onNext={calNext}
-              onDayClick={d => setCalDay(prev => prev === d ? null : d)}
-              selectedDay={calDay}
-            />
-          </motion.div>
-        )}
+        <>
+          {/* ── CALENDAR VIEW ── */}
+          <AnimatePresence mode="wait">
+            {view === 'calendar' && (
+              <motion.div key="calendar" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                <CalendarView
+                  reservas={reservations}
+                  year={calYear} month={calMonth}
+                  onPrev={calPrev} onNext={calNext}
+                  onDayClick={d => setCalDay(prev => prev === d ? null : d)}
+                  selectedDay={calDay}
+                />
+              </motion.div>
+            )}
 
-        {/* ── LIST VIEW ── */}
-        {view === 'list' && (
-          <motion.div key="list" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            {sortedReservations.length === 0 ? (
-              /* Empty state */
-              <div className="bg-white rounded-xl shadow-md border border-slate-200 py-20 flex flex-col items-center justify-center">
-                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                  <CalendarDays className="w-8 h-8 text-slate-400" />
-                </div>
-                <h3 className="text-slate-700 font-semibold mb-1">No hay reservas</h3>
-                <p className="text-slate-400 text-sm mb-6">
-                  {hasFilters ? 'Prueba con otros filtros' : 'Crea la primera reserva para empezar'}
-                </p>
-                {hasFilters ? (
-                  <button onClick={() => { setFilters({ search: '', fecha: '', status: '' as any, party_size: '' }); setPage(1); }} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors">
-                    Limpiar filtros
-                  </button>
-                ) : (
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowCreate(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg text-sm font-medium shadow-md hover:shadow-lg transition-shadow flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" /> Nueva Reserva
-                  </motion.button>
-                )}
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-slate-50 border-b border-slate-200">
-                      <tr>
-                        {/* Checkbox */}
-                        <th className="py-3 px-4 w-10">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.length === paginated.length && paginated.length > 0}
-                            onChange={toggleSelectAll}
-                            className="rounded accent-orange-500"
-                          />
-                        </th>
-                        {([
-                          { key: 'customer_name',  label: 'Cliente' },
-                          { key: 'reservation_date',    label: 'Fecha' },
-                          { key: 'reservation_date',     label: 'Hora' },
-                          { key: 'party_size', label: 'Personas' },
-                          { key: 'table_name',     label: 'Mesa' },
-                          { key: 'status',   label: 'Estado' },
-                        ] as { key: keyof Reservation | 'customer_name'; label: string }[]).map((col, idx) => (
-                          <th
-                            key={`${col.key}-${idx}`}
-                            className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 transition-colors select-none"
-                            onClick={() => toggleSort(col.key)}
-                          >
-                            <div className="flex items-center gap-1">
-                              {col.label}
-                              <SortIcon col={col.key} />
-                            </div>
-                          </th>
-                        ))}
-                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Notas</th>
-                        <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {paginated.map((r, idx) => (
-                        <motion.tr
-                          key={r.id}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: idx * 0.03 }}
-                          className={`hover:bg-slate-50 transition-colors group ${selectedIds.includes(r.id) ? 'bg-orange-50/50' : ''}`}
-                        >
-                          <td className="py-3 px-4">
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.includes(r.id)}
-                              onChange={() => toggleSelect(r.id)}
-                              className="rounded accent-orange-500"
-                            />
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 bg-gradient-to-br from-orange-100 to-red-100 rounded-full flex items-center justify-center shrink-0">
-                                <span className="text-xs font-semibold text-orange-600">{r.customer_name ? r.customer_name.charAt(0) : '?'}</span>
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-slate-900 whitespace-nowrap">{r.customer_name}</p>
-                                <p className="text-xs text-slate-400">{r.customer_phone}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{formatFecha(r.reservation_date)}</td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                              <Clock className="w-3.5 h-3.5 text-slate-400" />
-                              {extractTime(r.reservation_date)}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                              <Users className="w-3.5 h-3.5 text-slate-400" />
-                              {r.party_size}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                              <Utensils className="w-3.5 h-3.5 text-slate-400" />
-                              {r.table_name || 'Sin Mesa'}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <EstadoBadge estado={r.status as ReservationStatus} />
-                          </td>
-                          <td className="py-3 px-4 max-w-[140px]">
-                            {r.notes
-                              ? <span className="text-xs text-slate-500 truncate block" title={r.notes}>{r.notes}</span>
-                              : <span className="text-xs text-slate-300">—</span>
-                            }
-                          </td>
-                          {/* Actions */}
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {/* Ver */}
-                              <motion.button
-                                whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-                                onClick={() => setDetailRes(r)}
-                                className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors" title="Ver detalle"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </motion.button>
-                              {/* Editar */}
-                              <motion.button
-                                whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-                                onClick={() => { setEditingRes(r); setShowCreate(true); }}
-                                className="p-1.5 rounded-lg hover:bg-orange-100 text-slate-400 hover:text-orange-600 transition-colors" title="Editar"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </motion.button>
-                              {/* Confirmar */}
-                              {r.status === 'pendiente' && (
-                                <motion.button
-                                  whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-                                  onClick={() => handleChangeEstado(r.id, 'confirmada')}
-                                  className="p-1.5 rounded-lg hover:bg-green-100 text-slate-400 hover:text-green-600 transition-colors" title="Confirmar"
-                                >
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                </motion.button>
-                              )}
-                              {/* Marcar completada */}
-                              {r.status === 'confirmada' && (
-                                <motion.button
-                                  whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-                                  onClick={() => handleChangeEstado(r.id, 'completada')}
-                                  className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors" title="Marcar como atendida"
-                                >
-                                  <CalendarCheck className="w-3.5 h-3.5" />
-                                </motion.button>
-                              )}
-                              {/* Cancelar */}
-                              {r.status !== 'cancelada' && r.status !== 'completada' && (
-                                <motion.button
-                                  whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-                                  onClick={() => setCancelId(r.id)}
-                                  className="p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors" title="Cancelar reserva"
-                                >
-                                  <XCircle className="w-3.5 h-3.5" />
-                                </motion.button>
-                              )}
-                            </div>
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50/50">
-                    <p className="text-sm text-slate-500">
-                      Mostrando {((page - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(page * ITEMS_PER_PAGE, sortedReservations.length)} de {sortedReservations.length} reservas
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page === 1}
-                        className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <ChevronLeft className="w-4 h-4 text-slate-600" />
-                      </motion.button>
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                        <motion.button
-                          key={p}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => setPage(p)}
-                          className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
-                            page === p
-                              ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm'
-                              : 'text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          {p}
-                        </motion.button>
-                      ))}
-                      <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                        disabled={page === totalPages}
-                        className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <ChevronRight className="w-4 h-4 text-slate-600" />
-                      </motion.button>
+            {/* ── LIST VIEW ── */}
+            {view === 'list' && (
+              <motion.div key="list" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                {sortedReservations.length === 0 ? (
+                  /* Empty state */
+                  <div className="bg-white rounded-xl shadow-md border border-slate-200 py-20 flex flex-col items-center justify-center">
+                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                      <CalendarDays className="w-8 h-8 text-slate-400" />
                     </div>
+                    <h3 className="text-slate-700 font-semibold mb-1">No hay reservas</h3>
+                    <p className="text-slate-400 text-sm mb-6">
+                      {hasFilters ? 'Prueba con otros filtros' : 'Crea la primera reserva para empezar'}
+                    </p>
+                    {hasFilters ? (
+                      <button onClick={() => { setFilters({ search: '', fecha: '', status: '' as any, party_size: '' } as any); setPage(1); }} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors">
+                        Limpiar filtros
+                      </button>
+                    ) : (
+                      <motion.button
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowCreate(true)}
+                        className="px-4 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg text-sm font-medium shadow-md hover:shadow-lg transition-shadow flex items-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" /> Nueva Reserva
+                      </motion.button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-slate-50 border-b border-slate-200">
+                          <tr>
+                            {/* Checkbox */}
+                            <th className="py-3 px-4 w-10">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.length === paginated.length && paginated.length > 0}
+                                onChange={toggleSelectAll}
+                                className="rounded accent-orange-500"
+                              />
+                            </th>
+                            {([
+                              { key: 'customer_name', label: 'Cliente' },
+                              { key: 'reservation_date', label: 'Fecha' },
+                              { key: 'reservation_date', label: 'Hora' },
+                              { key: 'party_size', label: 'Personas' },
+                              { key: 'table_name', label: 'Mesa' },
+                              { key: 'status', label: 'Estado' },
+                            ] as { key: keyof Reservation | 'customer_name'; label: string }[]).map((col, idx) => (
+                              <th
+                                key={`${col.key}-${idx}`}
+                                className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 transition-colors select-none"
+                                onClick={() => toggleSort(col.key)}
+                              >
+                                <div className="flex items-center gap-1">
+                                  {col.label}
+                                  <SortIcon col={col.key} />
+                                </div>
+                              </th>
+                            ))}
+                            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Notas</th>
+                            <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {paginated.map((r, idx) => (
+                            <motion.tr
+                              key={r.id}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ delay: idx * 0.03 }}
+                              className={`hover:bg-slate-50 transition-colors group ${selectedIds.includes(r.id) ? 'bg-orange-50/50' : ''}`}
+                            >
+                              <td className="py-3 px-4">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.includes(r.id)}
+                                  onChange={() => toggleSelect(r.id)}
+                                  className="rounded accent-orange-500"
+                                />
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-8 h-8 bg-gradient-to-br from-orange-100 to-red-100 rounded-full flex items-center justify-center shrink-0">
+                                    <span className="text-xs font-semibold text-orange-600">{r.customer_name ? r.customer_name.charAt(0) : '?'}</span>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-slate-900 whitespace-nowrap">{r.customer_name}</p>
+                                    <p className="text-xs text-slate-400">{r.customer_phone}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-sm text-slate-600 whitespace-nowrap">{formatFecha(r.reservation_date)}</td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                  {extractTime(r.reservation_date)}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                                  <Users className="w-3.5 h-3.5 text-slate-400" />
+                                  {r.party_size}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                                  <Utensils className="w-3.5 h-3.5 text-slate-400" />
+                                  {r.table_name || 'Sin Mesa'}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <EstadoBadge estado={r.status as ReservationStatus} />
+                              </td>
+                              <td className="py-3 px-4 max-w-[140px]">
+                                {r.notes
+                                  ? <span className="text-xs text-slate-500 truncate block" title={r.notes}>{r.notes}</span>
+                                  : <span className="text-xs text-slate-300">—</span>
+                                }
+                              </td>
+                              {/* Actions */}
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {/* Ver */}
+                                  <motion.button
+                                    whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                    onClick={() => setDetailRes(r)}
+                                    className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors" title="Ver detalle"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </motion.button>
+                                  {/* Editar */}
+                                  <motion.button
+                                    whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                    onClick={() => { setEditingRes(r); setShowCreate(true); }}
+                                    className="p-1.5 rounded-lg hover:bg-orange-100 text-slate-400 hover:text-orange-600 transition-colors" title="Editar"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </motion.button>
+                                  {/* Confirmar */}
+                                  {r.status === 'pendiente' && (
+                                    <motion.button
+                                      whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                      onClick={() => handleChangeEstado(r.id, 'confirmada')}
+                                      className="p-1.5 rounded-lg hover:bg-green-100 text-slate-400 hover:text-green-600 transition-colors" title="Confirmar"
+                                    >
+                                      <CheckCircle className="w-3.5 h-3.5" />
+                                    </motion.button>
+                                  )}
+                                  {/* Marcar completada */}
+                                  {r.status === 'confirmada' && (
+                                    <motion.button
+                                      whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                      onClick={() => handleChangeEstado(r.id, 'completada')}
+                                      className="p-1.5 rounded-lg hover:bg-blue-100 text-slate-400 hover:text-blue-600 transition-colors" title="Marcar como atendida"
+                                    >
+                                      <CalendarCheck className="w-3.5 h-3.5" />
+                                    </motion.button>
+                                  )}
+                                  {/* Cancelar */}
+                                  {r.status !== 'cancelada' && r.status !== 'completada' && (
+                                    <motion.button
+                                      whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                      onClick={() => setCancelId(r.id)}
+                                      className="p-1.5 rounded-lg hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors" title="Cancelar reserva"
+                                    >
+                                      <XCircle className="w-3.5 h-3.5" />
+                                    </motion.button>
+                                  )}
+                                </div>
+                              </td>
+                            </motion.tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50/50">
+                        <p className="text-sm text-slate-500">
+                          Mostrando {((page - 1) * ITEMS_PER_PAGE) + 1}–{Math.min(page * ITEMS_PER_PAGE, sortedReservations.length)} de {sortedReservations.length} reservas
+                        </p>
+                        <div className="flex items-center gap-1">
+                          <motion.button
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                            disabled={page === 1}
+                            className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <ChevronLeft className="w-4 h-4 text-slate-600" />
+                          </motion.button>
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                            <motion.button
+                              key={p}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => setPage(p)}
+                              className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${page === p
+                                ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-sm'
+                                : 'text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                              {p}
+                            </motion.button>
+                          ))}
+                          <motion.button
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                            disabled={page === totalPages}
+                            className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <ChevronRight className="w-4 h-4 text-slate-600" />
+                          </motion.button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
+              </motion.div>
             )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      </>
+          </AnimatePresence>
+        </>
       )}
 
       {/* ── Modals ── */}
       <AnimatePresence>
         {(showCreate || editingRes) && (
-          <CreateModal
-            key="create"
-            editing={editingRes}
-            availableTables={mesas}
-            onClose={() => { setShowCreate(false); setEditingRes(null); }}
-            onSave={handleSave}
-          />
+          <motion.div key="create-modal-wrapper">
+            <CreateModal
+              editing={editingRes}
+              availableTables={mesas}
+              onClose={() => { setShowCreate(false); setEditingRes(null); }}
+              onSave={handleSave}
+            />
+          </motion.div>
         )}
         {detailRes && (
-          <DetailModal
-            key="detail"
-            reserva={detailRes}
-            onClose={() => setDetailRes(null)}
-            onEdit={() => { setEditingRes(detailRes); setDetailRes(null); setShowCreate(true); }}
-          />
+          <motion.div key="detail-modal-wrapper">
+            <DetailModal
+              reserva={detailRes}
+              onClose={() => setDetailRes(null)}
+              onEdit={() => { setEditingRes(detailRes); setDetailRes(null); setShowCreate(true); }}
+            />
+          </motion.div>
         )}
         {cancelId !== null && (
-          <ConfirmCancelModal
-            key="cancel"
-            nombre={reservations.find(r => r.id === cancelId)?.customer_name || ''}
-            onConfirm={handleCancelConfirm}
-            onClose={() => setCancelId(null)}
-          />
+          <motion.div key="cancel-modal-wrapper">
+            <ConfirmCancelModal
+              nombre={reservations.find(r => r.id === cancelId)?.customer_name || ''}
+              onConfirm={handleCancelConfirm}
+              onClose={() => setCancelId(null)}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

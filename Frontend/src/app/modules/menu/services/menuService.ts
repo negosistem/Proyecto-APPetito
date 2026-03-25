@@ -6,6 +6,20 @@ export interface ProductImage {
     order: number;
 }
 
+export interface ProductExtra {
+    id: number;
+    name: string;
+    price: number;
+    is_active: boolean;
+}
+
+export interface ProductIngredient {
+    id: number;
+    name: string;
+    removable: boolean;
+    is_active: boolean;
+}
+
 export interface Product {
     id: number;
     name: string;
@@ -14,17 +28,21 @@ export interface Product {
     category: string;
     image_url?: string | null;
     video_url?: string | null;
+    default_notes?: string | null;
     is_active: boolean;
     tiempo_preparacion?: number | null;
     images?: ProductImage[];
+    extras?: ProductExtra[];
+    ingredients?: ProductIngredient[];
 }
 
 export const menuService = {
     /**
-     * Obtiene todos los productos activos
+     * Obtiene todos los productos
      */
-    async getProducts(): Promise<Product[]> {
-        return apiClient.get<Product[]>('/api/products/');
+    async getProducts(includeInactive: boolean = false): Promise<Product[]> {
+        const url = includeInactive ? '/api/products/?include_inactive=true' : '/api/products/';
+        return apiClient.get<Product[]>(url);
     },
 
     /**

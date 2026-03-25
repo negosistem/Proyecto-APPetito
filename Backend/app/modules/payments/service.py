@@ -1,10 +1,13 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import select, func, extract
 from fastapi import HTTPException, status
 from decimal import Decimal
 from typing import Optional
+from datetime import datetime
 
 from app.models.order import Order, OrderStatus
 from app.models.payment import Payment, PaymentMethod
+from app.models.credit_note import CreditNote
 from app.models.audit_log import AuditLog
 from app.models.table import Table, TableStatus
 from app.modules.payments import schemas
@@ -113,3 +116,24 @@ def close_table_after_payment(db: Session, table_id: int):
     
     db.commit()
     return {"success": True}
+
+def generar_numero_factura(db: Session, id_empresa: int) -> str:
+    año = datetime.utcnow().year
+    count = db.execute(
+        select(func.count(Payment.id))
+        .where(Payment.id_empresa == id_empresa)
+        .where(extract("year", Payment.created_at) == año)
+    ).scalar() or 0
+    secuencial = str(count + 1).zfill(4)
+    return f"FAC-{id_empresa}-{año}-{secuencial}"
+
+def generar_numero_nota_credito(db: Session, id_empresa: int) -> str:
+    año = datetime.utcnow().year
+    count = db.execute(
+        select(func.count(CreditNote.id))
+        .where(CreditNote.id_empresa == id_empresa)
+        .where(extract("year", CreditNote.created_at) == año)
+    ).scalar() or 0
+    secuencial = str(count + 1).zfill(4)
+    return f"NC-{id_empresa}-{año}-{secuencial}"
+

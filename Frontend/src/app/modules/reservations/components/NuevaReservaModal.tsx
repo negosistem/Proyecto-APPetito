@@ -31,9 +31,18 @@ export default function NuevaReservaModal({ isOpen, onClose, onSubmit }: NuevaRe
     }
   }, [isOpen]);
 
+  // Handle ESC key
+  React.useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
+    setFormData((prev: any) => ({
       ...prev,
       [name]: (name === 'party_size' || name === 'id_table') ? (value ? parseInt(value) : null) : value,
     }));

@@ -11,12 +11,14 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 
 from app.db.session import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.models.order import Order, OrderStatus
-from app.models.payment import Payment, PaymentMethod
+from app.models.payment import Payment, PaymentMethod, PaymentStatus
+from app.models.credit_note import CreditNote
 from app.models.table import Table, TableStatus
-from .schemas import PaymentCreate, PaymentResponse, ReceiptRead, ReceiptItem
+from .schemas import PaymentCreate, PaymentResponse, ReceiptRead, ReceiptItem, CancelPaymentRequest
+from .service import generar_numero_factura, generar_numero_nota_credito
 
 # --- Receipt Generation Helpers ---
 
@@ -52,7 +54,7 @@ def generate_thermal_receipt(data: dict) -> io.BytesIO:
     
     # Invoice Info
     c.setFont("Courier-Bold", 9)
-    c.drawString(5 * mm, y, f"Factura: {data['invoice_number']}")
+    c.drawString(5 * mm, y, f"Factura: {data['numero_factura']}")
     y -= 4 * mm
     c.setFont("Courier", 8)
     c.drawString(5 * mm, y, f"Fecha: {data['date']}")
@@ -167,7 +169,7 @@ def generate_pdf_receipt(data: dict) -> io.BytesIO:
     c.drawCentredString(width/2, y, "Calle Principal #123, Santo Domingo, RD | Tel: (809) 555-1234")
     y -= 12 * mm
 
-    c.drawString(20 * mm, y, f"Factura: {data['invoice_number']}")
+    c.drawString(20 * mm, y, f"Factura: {data['numero_factura']}")
     c.drawRightString(width - 20 * mm, y, f"Fecha: {data['date']}")
     y -= 5 * mm
     customer_name = data.get('customer_name') or 'Consumidor Final'
@@ -255,7 +257,7 @@ def generate_html_receipt(data: dict) -> str:
     <html lang="es">
     <head>
         <meta charset="UTF-8">
-        <title>Recibo {data['invoice_number']}</title>
+        <title>Recibo {data['numero_factura']}</title>
         <style>
             @media print {{
                 @page {{ margin: 0; }}
@@ -324,7 +326,7 @@ def generate_html_receipt(data: dict) -> str:
         
         <div class="text-divider">--------------------------------</div>
         
-        <div>Factura #: <span class="bold">{data['invoice_number']}</span></div>
+        <div>Factura #: <span class="bold">{data['numero_factura']}</span></div>
         <div>{data['table']}</div>
         <div>Cliente: {data.get('customer_name') or 'Consumidor Final'}</div>
         
@@ -387,22 +389,7 @@ def process_payment(
             raise HTTPException(400, "Esta orden ya fue pagada")
         
         # 4. Generar número de factura único
-        today = datetime.now().strftime("%Y%m%d")
-        
-        # Obtener último número de factura del día con lock (dentro de la empresa)
-        last_payment = db.query(Payment).filter(
-            Payment.invoice_number.like(f"FAC-{today}-%"),
-            Payment.id_empresa == current_user.id_empresa
-        ).order_by(Payment.id.desc()).with_for_update().first()
-        
-        if last_payment:
-            # Extraer número y sumar 1
-            last_num = int(last_payment.invoice_number.split("-")[-1])
-            new_num = last_num + 1
-        else:
-            new_num = 1
-        
-        invoice_number = f"FAC-{today}-{new_num:05d}"  # FAC-20260210-00001
+        numero_factura = generar_numero_factura(db, current_user.id_empresa)
         
         # 5. Calcular montos (usar valores de la orden que ya incluyen tax)
         subtotal = order.subtotal
@@ -423,7 +410,8 @@ def process_payment(
         # 6. Crear registro de pago con empresa
         new_payment = Payment(
             order_id=order.id,
-            invoice_number=invoice_number,
+            numero_factura=numero_factura,
+            status=PaymentStatus.CONFIRMED,
             subtotal=subtotal,
             tax=tax,
             tip_amount=payment_data.tip_amount,
@@ -528,7 +516,7 @@ def get_receipt(
     
     # Datos unificados para generadores
     receipt_data = {
-        "invoice_number": payment.invoice_number,
+        "numero_factura": payment.numero_factura,
         "date": payment.created_at.strftime("%d/%m/%Y %H:%M:%S"),
         "table": f"Mesa {order.table.number}" if order.table else "Para llevar",
         "waiter": order.user.nombre if order.user else "N/A",
@@ -558,10 +546,10 @@ def get_receipt(
     
     if format == "thermal":
         pdf_buffer = generate_thermal_receipt(receipt_data)
-        filename = f"ticket-{payment.invoice_number}.pdf"
+        filename = f"ticket-{payment.numero_factura}.pdf"
     else:  # pdf/A4
         pdf_buffer = generate_pdf_receipt(receipt_data)
-        filename = f"recibo-{payment.invoice_number}.pdf"
+        filename = f"recibo-{payment.numero_factura}.pdf"
         
     return Response(
         content=pdf_buffer.getvalue(),
@@ -569,4 +557,76 @@ def get_receipt(
         headers={
             "Content-Disposition": f"inline; filename={filename}"
         }
+    )
+
+@router.post("/{payment_id}/cancel")
+async def cancel_payment(
+    payment_id: int,
+    body: CancelPaymentRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    # 1. Buscar el pago filtrando por empresa
+    pago = db.scalars(
+        select(Payment)
+        .where(Payment.id == payment_id)
+        .where(Payment.id_empresa == current_user.id_empresa)
+    ).first()
+
+    if not pago:
+        raise HTTPException(404, "Pago no encontrado")
+
+    # 2. Verificar que no esté ya cancelado
+    if pago.status == PaymentStatus.CANCELLED:
+        raise HTTPException(409, "Este pago ya fue cancelado anteriormente")
+
+    # 3. Verificar que no tenga nota de crédito ya emitida
+    nc_existente = db.scalars(
+        select(CreditNote).where(CreditNote.payment_id == payment_id)
+    ).first()
+
+    if nc_existente:
+        raise HTTPException(409, f"Ya existe la nota de crédito {nc_existente.numero_nc}")
+
+    # 4. Crear nota de crédito + marcar pago como cancelado
+    try:
+        numero_nc = generar_numero_nota_credito(db, current_user.id_empresa)
+
+        nota_credito = CreditNote(
+            payment_id    = payment_id,
+            id_empresa    = current_user.id_empresa,
+            numero_nc     = numero_nc,
+            motivo        = body.motivo,
+            monto         = float(pago.total_amount),
+            cancelado_por = current_user.id,
+        )
+        db.add(nota_credito)
+
+        pago.status = PaymentStatus.CANCELLED
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(500, "Error al procesar la cancelación")
+
+    return {
+        "mensaje": "Pago cancelado exitosamente",
+        "numero_factura_original": pago.numero_factura,
+        "nota_credito": numero_nc,
+    }
+
+@router.put("/{payment_id}")
+async def update_payment(payment_id: int):
+    raise HTTPException(
+        403,
+        "Los pagos confirmados son documentos fiscales inmutables. "
+        "Para anular, use el endpoint de cancelación."
+    )
+
+@router.delete("/{payment_id}")
+async def delete_payment(payment_id: int):
+    raise HTTPException(
+        403,
+        "Los pagos no pueden eliminarse. "
+        "Para anular, emita una nota de crédito."
     )

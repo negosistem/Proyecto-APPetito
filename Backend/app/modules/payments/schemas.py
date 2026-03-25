@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
-from app.models.payment import PaymentMethod
+from app.models.payment import PaymentMethod, PaymentStatus
 
 class PaymentCreate(BaseModel):
     order_id: int
@@ -24,10 +24,13 @@ class PaymentCreate(BaseModel):
             raise ValueError("amount_received es requerido para pagos en efectivo")
         return v
 
+class CancelPaymentRequest(BaseModel):
+    motivo: str = Field(..., min_length=10)
+
 class PaymentResponse(BaseModel):
     id: int
     order_id: int
-    invoice_number: str
+    numero_factura: str
     subtotal: Decimal
     tax: Decimal
     tip_amount: Decimal
@@ -37,6 +40,7 @@ class PaymentResponse(BaseModel):
     processed_by: int
     created_at: datetime
     table_number: Optional[str] = None
+    status: PaymentStatus
     
     class Config:
         from_attributes = True
@@ -50,7 +54,7 @@ class ReceiptItem(BaseModel):
 class ReceiptRead(BaseModel):
     order_id: int
     payment_id: int
-    invoice_number: str
+    numero_factura: str
     customer_name: Optional[str] = None
     table_number: Optional[str] = None
     items: List[ReceiptItem]

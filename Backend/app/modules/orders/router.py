@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List
-from decimal import Decimal
+from typing import Any, List, Sequence
+from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -9,16 +9,286 @@ from app.db.session import get_db
 from app.models.order import Order, OrderItem, OrderStatus, OrderItemState
 from app.models.table import Table, TableStatus
 from app.models.product import Product
+from app.models.company import Company
 from app.models.product_extra import ProductExtra, ProductIngredient
 from app.models.user import User
+from app.modules.payments import schemas as payment_schemas
+from app.modules.payments.service import build_payment_response, create_order_payment, get_locked_order
 from app.modules.orders import schemas
 from app.core.dependencies import get_current_user
-from app.modules.kitchen.ws_manager import manager as ws_manager  # pyre-ignore[21]
+from app.modules.kitchen.socket_events import (
+    broadcast_order_update,
+    build_order_socket_message,
+)
 
 router = APIRouter(
     prefix="/orders",
     tags=["Orders"]
 )
+
+MONEY_QUANTUM = Decimal("0.01")
+
+
+def _require_company_id(current_user: User) -> int:
+    company_id = getattr(current_user, "id_empresa", None)
+    if company_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="El usuario autenticado no tiene una empresa asociada",
+        )
+    return company_id
+
+
+def _to_money(value: Any) -> Decimal:
+    if value is None:
+        return Decimal("0.00")
+    return Decimal(str(value))
+
+
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+
+
+def _normalize_id_list(raw_ids: Sequence[int] | None, *, field_name: str) -> list[int]:
+    if not raw_ids:
+        return []
+
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for raw_id in raw_ids:
+        item_id = int(raw_id)
+        if item_id <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Todos los IDs de {field_name} deben ser enteros positivos",
+            )
+        if item_id not in seen:
+            seen.add(item_id)
+            normalized.append(item_id)
+    return normalized
+
+
+def _get_company_or_raise(db: Session, company_id: int) -> Company:
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+    return company
+
+
+def _get_product_or_raise(db: Session, product_id: int, company_id: int) -> Product:
+    product = (
+        db.query(Product)
+        .filter(
+            Product.id == product_id,
+            Product.id_empresa == company_id,
+            Product.is_active.is_(True),
+        )
+        .first()
+    )
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Producto con ID {product_id} no encontrado para esta empresa",
+        )
+    return product
+
+
+def _resolve_extras(
+    db: Session,
+    extra_ids: Sequence[int] | None,
+    *,
+    product: Product,
+    company_id: int,
+) -> list[ProductExtra]:
+    normalized_extra_ids = _normalize_id_list(extra_ids, field_name="extras")
+    if not normalized_extra_ids:
+        return []
+
+    extras = (
+        db.query(ProductExtra)
+        .filter(
+            ProductExtra.id.in_(normalized_extra_ids),
+            ProductExtra.product_id == product.id,
+            ProductExtra.id_empresa == company_id,
+            ProductExtra.is_active.is_(True),
+        )
+        .all()
+    )
+    extras_by_id = {extra.id: extra for extra in extras}
+    if len(extras_by_id) != len(normalized_extra_ids):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Uno o más extras no pertenecen al producto {product.name} "
+                "o no están disponibles para esta empresa"
+            ),
+        )
+    return [extras_by_id[extra_id] for extra_id in normalized_extra_ids]
+
+
+def _resolve_removed_ingredients(
+    db: Session,
+    ingredient_ids: Sequence[int] | None,
+    *,
+    product: Product,
+    company_id: int,
+) -> list[ProductIngredient]:
+    normalized_ingredient_ids = _normalize_id_list(
+        ingredient_ids,
+        field_name="ingredientes removidos",
+    )
+    if not normalized_ingredient_ids:
+        return []
+
+    ingredients = (
+        db.query(ProductIngredient)
+        .filter(
+            ProductIngredient.id.in_(normalized_ingredient_ids),
+            ProductIngredient.product_id == product.id,
+            ProductIngredient.id_empresa == company_id,
+            ProductIngredient.is_active.is_(True),
+            ProductIngredient.removable.is_(True),
+        )
+        .all()
+    )
+    ingredients_by_id = {ingredient.id: ingredient for ingredient in ingredients}
+    if len(ingredients_by_id) != len(normalized_ingredient_ids):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Uno o más ingredientes removidos no pertenecen al producto {product.name} "
+                "o no están disponibles para esta empresa"
+            ),
+        )
+    return [ingredients_by_id[ingredient_id] for ingredient_id in normalized_ingredient_ids]
+
+
+def _build_modifier_snapshot(
+    *,
+    notes: str | None,
+    extras: Sequence[ProductExtra],
+    removed_ingredients: Sequence[ProductIngredient],
+) -> list[dict[str, Any]]:
+    snapshot: list[dict[str, Any]] = []
+
+    if notes:
+        snapshot.append(
+            {
+                "source_id": None,
+                "source_type": "note",
+                "group_key": "notes",
+                "group_label": "Notas",
+                "choice": "note",
+                "name": notes,
+                "price": 0.0,
+            }
+        )
+
+    for extra in extras:
+        snapshot.append(
+            {
+                "source_id": extra.id,
+                "source_type": "extra",
+                "group_key": "extras",
+                "group_label": "Añadir",
+                "choice": "add",
+                "name": extra.name,
+                "price": float(_round_money(_to_money(extra.price))),
+            }
+        )
+
+    for ingredient in removed_ingredients:
+        snapshot.append(
+            {
+                "source_id": ingredient.id,
+                "source_type": "ingredient",
+                "group_key": "ingredients",
+                "group_label": "Quitar",
+                "choice": "remove",
+                "name": ingredient.name,
+                "price": 0.0,
+            }
+        )
+
+    return snapshot
+
+
+def _build_order_item_notes(modifiers_snapshot: Sequence[dict[str, Any]]) -> str | None:
+    notes_lines: list[str] = []
+    for modifier in modifiers_snapshot:
+        choice = modifier.get("choice")
+        name = str(modifier.get("name", "")).strip()
+        if not name:
+            continue
+
+        if choice == "note":
+            notes_lines.append(f"Notas: {name}")
+        elif choice == "add":
+            notes_lines.append(f"+ {name}")
+        elif choice == "remove":
+            notes_lines.append(f"- Sin {name}")
+
+    return "\n".join(notes_lines) if notes_lines else None
+
+
+def _create_order_item(
+    *,
+    order_id: int,
+    item_data: schemas.OrderItemCreate,
+    product: Product,
+    extras: Sequence[ProductExtra],
+    removed_ingredients: Sequence[ProductIngredient],
+    company_id: int,
+) -> OrderItem:
+    modifiers_snapshot = _build_modifier_snapshot(
+        notes=item_data.notes,
+        extras=extras,
+        removed_ingredients=removed_ingredients,
+    )
+    extras_total = sum((_to_money(extra.price) for extra in extras), Decimal("0.00"))
+    item_price = _round_money(_to_money(product.price) + extras_total)
+    item_subtotal = _round_money(item_price * item_data.quantity)
+
+    return OrderItem(
+        order_id=order_id,
+        product_id=product.id,
+        product_name=product.name,
+        quantity=item_data.quantity,
+        price=item_price,
+        subtotal=item_subtotal,
+        notes=_build_order_item_notes(modifiers_snapshot),
+        modifiers_snapshot=modifiers_snapshot,
+        prep_time_minutes=(
+            product.tiempo_preparacion
+            if product.tiempo_preparacion
+            else product.prep_time_minutes
+        ),
+        id_empresa=company_id,
+    )
+
+
+def _recalculate_order_financials(
+    order: Order,
+    *,
+    company: Company,
+    apply_tip: bool,
+) -> None:
+    subtotal = _round_money(
+        sum((_to_money(item.subtotal) for item in order.items), Decimal("0.00"))
+    )
+    tax_rate = _to_money(company.tax_rate) / Decimal("100")
+    tax = (
+        _round_money(subtotal * tax_rate)
+        if getattr(order, "aplica_impuesto", True)
+        else Decimal("0.00")
+    )
+    tip = _round_money(subtotal * Decimal("0.10")) if apply_tip else Decimal("0.00")
+    discount = _to_money(order.discount)
+
+    order.subtotal = subtotal
+    order.tax = tax
+    order.tip = tip
+    order.total = _round_money(subtotal + tax + tip - discount)
 
 # Helper to check active order within company
 def check_existing_active_order(table_id: int, id_empresa: int, db: Session):
@@ -83,11 +353,8 @@ async def create_order(
     Sets Table status to OCUPADA.
     AUTOMATICALLY SENDS TO KITCHEN.
     """
-    from decimal import Decimal
-    from app.core.config import get_settings
-    
-    settings = get_settings()
-    
+    company_id = _require_company_id(current_user)
+
     # 1. Handle table assignment
     actual_table_id = order_data.table_id
     table = None
@@ -96,7 +363,7 @@ async def create_order(
     if actual_table_id == 0:
         table = db.query(Table).filter(
             Table.status == TableStatus.LIBRE,
-            Table.id_empresa == current_user.id_empresa
+            Table.id_empresa == company_id
         ).first()
         if table:
             actual_table_id = table.id
@@ -107,13 +374,13 @@ async def create_order(
         # Specific table requested - validate it belongs to company
         table = db.query(Table).filter(
             Table.id == actual_table_id,
-            Table.id_empresa == current_user.id_empresa
+            Table.id_empresa == company_id
         ).first()
         if not table:
             raise HTTPException(status_code=404, detail="Mesa no encontrada")
         
         # Check for active order
-        check_existing_active_order(actual_table_id, current_user.id_empresa, db)
+        check_existing_active_order(actual_table_id, company_id, db)
     
     # 3. Validate that order has items
     # ALLOW EMPTY ORDER (To just open table)
@@ -139,101 +406,51 @@ async def create_order(
         tip=Decimal("0"),
         discount=Decimal("0"),
         total=Decimal("0"),
-        id_empresa=current_user.id_empresa,
+        id_empresa=company_id,
         aplica_impuesto=getattr(order_data, 'aplica_impuesto', True)
     )
     db.add(new_order)
     db.flush()  # Get the order ID
     
-    # 5. Create order items and calculate subtotal
-    subtotal = Decimal("0")
+    # 5. Create order items using validated snapshots
     
     for item_data in order_data.items:
-        # Get product
-        product = db.query(Product).filter(Product.id == item_data.product_id).first()
-        if not product:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Producto con ID {item_data.product_id} no encontrado"
-            )
+        product = _get_product_or_raise(db, item_data.product_id, company_id)
         
-        # Handle extras and ingredients
-        extras = []
-        extras_total = Decimal("0")
-        if getattr(item_data, 'extras_ids', None):
-            extras = db.query(ProductExtra).filter(ProductExtra.id.in_(item_data.extras_ids)).all()
-            for extra in extras:
-                extras_total += Decimal(str(extra.price))
-        
-        removed_ingredients = []
-        if getattr(item_data, 'removed_ingredient_ids', None):
-            removed_ingredients = db.query(ProductIngredient).filter(ProductIngredient.id.in_(item_data.removed_ingredient_ids)).all()
+        extras = _resolve_extras(
+            db,
+            item_data.extras_ids,
+            product=product,
+            company_id=company_id,
+        )
 
-        # Build combined notes
-        notes_parts = []
-        if getattr(item_data, 'notes', None) and item_data.notes.strip():
-            notes_parts.append(f"Notas: {item_data.notes}")
-        for extra in extras:
-            notes_parts.append(f"+ {extra.name}")
-        for ingredient in removed_ingredients:
-            notes_parts.append(f"- Sin {ingredient.name}")
+        removed_ingredients = _resolve_removed_ingredients(
+            db,
+            item_data.removed_ingredient_ids,
+            product=product,
+            company_id=company_id,
+        )
+
         
-        final_notes = "\n".join(notes_parts) if notes_parts else None
-        
-        # Calculate item subtotal
-        item_price = Decimal(str(product.price)) + extras_total
-        item_subtotal = item_price * item_data.quantity
-        
-        # Create order item with snapshot and company
-        order_item = OrderItem(
+        order_item = _create_order_item(
             order_id=new_order.id,
-            product_id=product.id,
-            product_name=product.name,  # Snapshot
-            quantity=item_data.quantity,
-            price=item_price,  # Snapshot
-            subtotal=item_subtotal,
-            notes=final_notes,
-            # 🆕 Transfer prep_time
-            prep_time_minutes=product.tiempo_preparacion if product.tiempo_preparacion else product.prep_time_minutes, 
-            id_empresa=current_user.id_empresa
+            item_data=item_data,
+            product=product,
+            extras=extras,
+            removed_ingredients=removed_ingredients,
+            company_id=company_id,
         )
         db.add(order_item)
-        db.flush() # Need ID for state
-        
-        # 🆕 Create OrderItemState
-        item_state = OrderItemState(
-            order_item_id=order_item.id,
-            state='pending'
-        )
-        db.add(item_state)
-        
-        subtotal += item_subtotal
+        db.flush()
+        db.add(OrderItemState(order_item_id=order_item.id, state="pending"))
     
-    # 6. Get company tax rate and calculate tax, tip, and total
-    from app.models.company import Company
-    company = db.query(Company).filter(Company.id == current_user.id_empresa).first()
-    if not company:
-        raise HTTPException(status_code=404, detail="Empresa no encontrada")
-    
-    # Calculate tax using company's tax rate
-    tax = Decimal("0")
-    if getattr(order_data, 'aplica_impuesto', True):
-        tax_rate = Decimal(str(company.tax_rate)) / Decimal("100")  # Convert percentage to decimal
-        tax = subtotal * tax_rate
-    
-    # Calculate tip if requested (default 10%)
-    tip = Decimal("0")
-    if order_data.apply_tip:
-        tip = subtotal * Decimal("0.10")  # 10% tip
-    
-    # Calculate total: subtotal + tax + tip - discount
-    total = subtotal + tax + tip - new_order.discount
-    
-    # 7. Update order totals
-    new_order.subtotal = subtotal
-    new_order.tax = tax
-    new_order.tip = tip
-    new_order.total = total
+    # 6. Recalculate totals from persisted order items
+    company = _get_company_or_raise(db, company_id)
+    _recalculate_order_financials(
+        new_order,
+        company=company,
+        apply_tip=bool(order_data.apply_tip),
+    )
     
     # 8. Update Table Status
     if actual_table_id and table:
@@ -242,10 +459,12 @@ async def create_order(
 
     db.commit()
     db.refresh(new_order)
-    
-    # Notificar a cocina si hay items
+
     if initial_status == OrderStatus.NEW:
-        await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+        await broadcast_order_update(
+            company_id,
+            build_order_socket_message("NEW_ORDER", new_order),
+        )
         
     return new_order
 
@@ -316,10 +535,40 @@ def get_order_details(
         tip=order.tip,
         discount=order.discount,
         total=order.total,
+        total_amount=order.total_amount,
+        paid_amount=order.paid_amount,
+        remaining_balance=order.remaining_balance,
         items=order.items,
+        payments=order.payments,
         status=order.status,
         created_at=order.created_at
     )
+
+
+@router.post("/{order_id}/payments", response_model=payment_schemas.PaymentResponse, status_code=status.HTTP_201_CREATED)
+async def create_partial_payment(
+    order_id: int,
+    payment_data: payment_schemas.OrderPaymentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = get_locked_order(db, order_id, current_user.id_empresa)
+    previous_status = order.status
+
+    payment = create_order_payment(
+        db=db,
+        order=order,
+        payment_data=payment_data,
+        processed_by=current_user.id,
+        company_id=current_user.id_empresa,
+    )
+
+    await broadcast_order_update(
+        current_user.id_empresa,
+        build_order_socket_message("ORDER_UPDATED", order, previous_status),
+    )
+
+    return build_payment_response(payment, order)
 
 @router.post("/{order_id}/items", response_model=schemas.Order)
 async def add_order_items(
@@ -332,74 +581,78 @@ async def add_order_items(
     Add items to an order.
     Updates the total amount automatically.
     """
-    order = db.query(Order).filter(Order.id == order_id).first()
+    company_id = _require_company_id(current_user)
+    order = db.query(Order).filter(
+        Order.id == order_id,
+        Order.id_empresa == company_id
+    ).first()
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
     
     if order.status in [OrderStatus.PAID, OrderStatus.CANCELLED]:
         raise HTTPException(status_code=400, detail="No se pueden agregar items a un pedido cerrado o cancelado")
 
-    items_to_add = []
-    total_added = 0.0
+    items_to_add: list[OrderItem] = []
+    previous_status = order.status
 
     for item_data in items:
-        product = db.query(Product).filter(Product.id == item_data.product_id).first()
-        if not product:
-            continue # Or raise error
-        
-        # Handle extras and ingredients
-        extras = []
-        extras_total = Decimal("0")
-        if getattr(item_data, 'extras_ids', None):
-            extras = db.query(ProductExtra).filter(ProductExtra.id.in_(item_data.extras_ids)).all()
-            for extra in extras:
-                extras_total += Decimal(str(extra.price))
-        
-        removed_ingredients = []
-        if getattr(item_data, 'removed_ingredient_ids', None):
-            removed_ingredients = db.query(ProductIngredient).filter(ProductIngredient.id.in_(item_data.removed_ingredient_ids)).all()
+        product = _get_product_or_raise(db, item_data.product_id, company_id)
+        extras = _resolve_extras(
+            db,
+            item_data.extras_ids,
+            product=product,
+            company_id=company_id,
+        )
 
-        # Build combined notes
-        notes_parts = []
-        if getattr(item_data, 'notes', None) and item_data.notes.strip():
-            notes_parts.append(f"Notas: {item_data.notes}")
-        for extra in extras:
-            notes_parts.append(f"+ {extra.name}")
-        for ingredient in removed_ingredients:
-            notes_parts.append(f"- Sin {ingredient.name}")
+        removed_ingredients = _resolve_removed_ingredients(
+            db,
+            item_data.removed_ingredient_ids,
+            product=product,
+            company_id=company_id,
+        )
+
         
-        final_notes = "\n".join(notes_parts) if notes_parts else None
-        
-        # Create OrderItem with company
-        item_price = Decimal(str(product.price)) + extras_total
-        item_subtotal = item_price * item_data.quantity
-        
-        new_item = OrderItem(
+        new_item = _create_order_item(
             order_id=order.id,
-            product_id=product.id,
-            quantity=item_data.quantity,
-            price=item_price, # Snapshot price
-            subtotal=item_subtotal,
-            notes=final_notes,
-            # Snapshot prep time from product
-            prep_time_minutes=product.tiempo_preparacion if product.tiempo_preparacion else product.prep_time_minutes,
-            id_empresa=current_user.id_empresa
+            item_data=item_data,
+            product=product,
+            extras=extras,
+            removed_ingredients=removed_ingredients,
+            company_id=company_id,
         )
         items_to_add.append(new_item)
-        total_added += float(item_subtotal)
 
     if items_to_add:
         db.add_all(items_to_add)
-        order.total += total_added
+        db.flush()
+
+        for item in items_to_add:
+            db.add(OrderItemState(order_item_id=item.id, state='pending'))
+
+        company = _get_company_or_raise(db, company_id)
+
+        if order.status == OrderStatus.PENDING:
+            order.status = OrderStatus.NEW
+            order.kitchen_received_at = func.now()
+
+        _recalculate_order_financials(
+            order,
+            company=company,
+            apply_tip=_to_money(order.tip) > Decimal("0.00"),
+        )
         db.commit()
         db.refresh(order)
-        # Notificar a cocina
-        await ws_manager.broadcast_to_empresa(current_user.id_empresa, {"type": "kanban_update"})
+
+        event_type = "NEW_ORDER" if previous_status == OrderStatus.PENDING and order.status == OrderStatus.NEW else "ORDER_UPDATED"
+        await broadcast_order_update(
+            company_id,
+            build_order_socket_message(event_type, order, previous_status),
+        )
     
     return order
 
 @router.patch("/{order_id}/status", response_model=schemas.Order)
-def update_order_status(
+async def update_order_status(
     order_id: int,
     status_update: schemas.OrderUpdate,
     db: Session = Depends(get_db),
@@ -419,6 +672,9 @@ def update_order_status(
             detail="Este pedido ya ha sido pagado y no puede modificarse"
         )
 
+    previous_status = order.status
+    status_changed = False
+
     if status_update.status:
         if status_update.status in [OrderStatus.PAID, OrderStatus.CANCELLED]:
             order.closed_at = datetime.now()
@@ -426,14 +682,23 @@ def update_order_status(
             if order.table and order.table.status == TableStatus.OCUPADA:
                 order.table.status = TableStatus.LIBRE
 
-        order.status = status_update.status
+        if order.status != status_update.status:
+            order.status = status_update.status
+            status_changed = True
 
     db.commit()
     db.refresh(order)
+
+    if status_changed:
+        await broadcast_order_update(
+            current_user.id_empresa,
+            build_order_socket_message("ORDER_UPDATED", order, previous_status),
+        )
+
     return order
 
 @router.post("/{order_id}/reopen", response_model=schemas.Order)
-def reopen_order(
+async def reopen_order(
     order_id: int,
     motivo: str = Body(..., embed=True),
     db: Session = Depends(get_db),
@@ -463,9 +728,11 @@ def reopen_order(
     if order.status != OrderStatus.PAID:
         raise HTTPException(status_code=400, detail="Solo se pueden reabrir pedidos en estado 'pagado'")
 
-    # Change order status back to pending
+    previous_status = order.status
     order.status = OrderStatus.PENDING
     order.closed_at = None
+    if order.table and order.table.status == TableStatus.LIBRE:
+        order.table.status = TableStatus.OCUPADA
 
     # Register audit log
     audit = AuditLog(
@@ -479,16 +746,23 @@ def reopen_order(
     db.add(audit)
     db.commit()
     db.refresh(order)
+
+    await broadcast_order_update(
+        current_user.id_empresa,
+        build_order_socket_message("ORDER_UPDATED", order, previous_status),
+    )
+
     return order
 
-
-def close_order(
+@router.post("/{order_id}/close", response_model=schemas.Order)
+async def close_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Close the order and optionally free the table.
+    Close the order only when there is no pending balance.
+    This is used for tables opened without items or already fully settled orders.
     """
     order = db.query(Order).filter(
         Order.id == order_id,
@@ -497,36 +771,32 @@ def close_order(
     if not order:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
     
+    if order.status == OrderStatus.CANCELLED:
+        raise HTTPException(status_code=400, detail="No se puede cerrar un pedido cancelado")
+
     if order.status == OrderStatus.PAID:
         return order
 
+    if order.remaining_balance > Decimal("0"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El pedido aun tiene saldo pendiente. Monto maximo pendiente: {order.remaining_balance}",
+        )
+
+    previous_status = order.status
     order.status = OrderStatus.PAID
     order.closed_at = datetime.now()
-    
-    # Create Payment record if it doesn't exist
-    from app.models.payment import Payment, PaymentMethod
-    from decimal import Decimal
-    
-    existing_payment = db.query(Payment).filter(Payment.order_id == order.id).first()
-    if not existing_payment:
-        # Generate a unique invoice number: INV-{order_id}-{yyyymmddHHMMSS}
-        invoice_number = f"INV-{order.id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        new_payment = Payment(
-            order_id=order.id,
-            invoice_number=invoice_number,
-            subtotal=Decimal(str(order.total)),
-            tip_amount=Decimal("0.00"),
-            total_amount=Decimal(str(order.total)),
-            payment_method=PaymentMethod.CASH,  # Default
-            processed_by=current_user.id,
-            id_empresa=current_user.id_empresa
-        )
-        db.add(new_payment)
-    
+
     # Auto-free table if it was occupied
     if order.table and order.table.status == TableStatus.OCUPADA:
         order.table.status = TableStatus.LIBRE
 
     db.commit()
     db.refresh(order)
+
+    await broadcast_order_update(
+        current_user.id_empresa,
+        build_order_socket_message("ORDER_UPDATED", order, previous_status),
+    )
+
     return order

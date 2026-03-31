@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { X, Check, Play, ChefHat } from 'lucide-react';
 import { motion } from 'framer-motion';
+import type { KitchenOrder, KitchenOrderItem } from '../types';
+import { groupModifiers } from '@/app/modules/orders/utils/modifiers';
 
 interface Props {
-    order: any;
+    order: KitchenOrder;
     onClose: () => void;
     onUpdate: () => void;
     tick: number;
@@ -11,7 +13,7 @@ interface Props {
 
 import { apiClient } from '../../../shared/services/apiClient';
 
-export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
+export default function OrderTicket({ order, onClose, onUpdate, tick: _tick }: Props) {
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
@@ -59,7 +61,7 @@ export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
         }
     };
 
-    const isItemOverdue = (item: any) => {
+    const isItemOverdue = (item: KitchenOrderItem) => {
         // Alertas solo si está en proceso
         if (item.state !== 'preparing' || !item.started_at) return false;
 
@@ -70,7 +72,7 @@ export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
         return elapsedMinutes > limit;
     };
 
-    const getDishTimerLabels = (item: any) => {
+    const getDishTimerLabels = (item: KitchenOrderItem) => {
         if (!item.started_at) return "00:00";
 
         // Si ya terminó, mostrar tiempo final estático
@@ -108,8 +110,13 @@ export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
                     <div>
                         <h3 className="font-semibold text-lg mb-3">PRODUCTOS:</h3>
                         <div className="space-y-3">
-                            {order.items.map((item: any) => {
+                            {order.items.map((item) => {
                                 const overdue = isItemOverdue(item);
+                                const groupedModifiers = groupModifiers(item.modifiers_snapshot);
+                                const hasStructuredModifiers =
+                                    groupedModifiers.additions.length > 0 ||
+                                    groupedModifiers.removals.length > 0 ||
+                                    groupedModifiers.notes.length > 0;
                                 return (
                                     <div
                                         key={item.id}
@@ -125,7 +132,38 @@ export default function OrderTicket({ order, onClose, onUpdate, tick }: Props) {
                                                     {item.quantity}x {item.product_name}
                                                     {overdue && <span className="text-sm shadow-sm ml-3 text-white bg-red-500 px-2.5 py-0.5 rounded-full not-italic">Atrasado</span>}
                                                 </p>
-                                                {item.notes && (
+                                                {hasStructuredModifiers && (
+                                                    <div className="mt-2 space-y-2">
+                                                        {groupedModifiers.additions.length > 0 && (
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {groupedModifiers.additions.map((modifier, index) => (
+                                                                    <span key={`add-${index}`} className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                                                                        + {modifier.name}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {groupedModifiers.removals.length > 0 && (
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {groupedModifiers.removals.map((modifier, index) => (
+                                                                    <span key={`remove-${index}`} className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                                                                        - Sin {modifier.name}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {groupedModifiers.notes.length > 0 && (
+                                                            <div className="space-y-1">
+                                                                {groupedModifiers.notes.map((modifier, index) => (
+                                                                    <p key={`note-${index}`} className="inline-block rounded border border-amber-100 bg-yellow-50 px-2 py-1 text-sm italic text-gray-600">
+                                                                        {modifier.name}
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {!hasStructuredModifiers && item.notes && (
                                                     <p className="text-base text-gray-600 italic mt-1 bg-yellow-50 inline-block px-2 py-1 rounded border border-yellow-100">{item.notes}</p>
                                                 )}
                                                 <p className="text-xs text-gray-500 mt-1">

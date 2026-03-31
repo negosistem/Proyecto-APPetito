@@ -1,11 +1,10 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { authService, User } from '../services/authService';
-import { dashboardService } from '@/app/modules/dashboard/services/dashboardService';
 
 interface AuthContextType {
     user: User | null;
     login: (email: string, password: string) => Promise<void>;
-    register: (name: string, email: string, password: string) => Promise<void>;
+    register: (restaurantName: string, ownerName: string, email: string, password: string) => Promise<void>;
     logout: () => void;
     isAuthenticated: boolean;
     isLoading: boolean;
@@ -101,16 +100,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     };
 
-    const register = async (name: string, email: string, password: string) => {
+    const register = async (restaurantName: string, ownerName: string, email: string, password: string) => {
         setIsLoading(true);
         setError(null);
         try {
             await authService.register({
-                nombre: name,
-                email: email,
-                password: password,
-                role: 'admin',
-                is_active: true
+                restaurant_name: restaurantName,
+                owner_name: ownerName,
+                email,
+                password,
             });
 
             await login(email, password);

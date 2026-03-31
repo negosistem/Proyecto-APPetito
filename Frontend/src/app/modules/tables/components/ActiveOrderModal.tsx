@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { ordersService, Order } from '../../orders/services/ordersService';
 import { PaymentModal } from '../../orders/components/PaymentModal';
+import { groupModifiers } from '../../orders/utils/modifiers';
 import { Table } from '../services/tableService';
 
 interface ActiveOrderModalProps {
@@ -236,13 +237,20 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
             id: orderDetails.id,
             subtotal: Number(orderDetails.subtotal ?? orderDetails.total),
             tax: Number(orderDetails.tax ?? 0),
+            tip: Number(orderDetails.tip ?? 0),
+            discount: Number(orderDetails.discount ?? 0),
             total: Number(orderDetails.total),
+            total_amount: Number(orderDetails.total_amount ?? orderDetails.total),
+            paid_amount: Number(orderDetails.paid_amount ?? 0),
+            remaining_balance: Number(orderDetails.remaining_balance ?? orderDetails.total),
+            customer_name: orderDetails.customer_name,
             items: (orderDetails.items ?? []).map((it: any) => ({
                 product_name: it.product_name,
                 quantity: it.quantity,
                 price: Number(it.price),
                 subtotal: Number(it.subtotal ?? (it.price * it.quantity)),
             })),
+            payments: orderDetails.payments ?? [],
         }
         : null;
 
@@ -363,7 +371,13 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                         <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Productos</h4>
                                         <div className="bg-white rounded-xl border border-slate-100 shadow-sm divide-y divide-slate-50">
                                             {order.items && order.items.length > 0 ? (
-                                                order.items.map((item) => (
+                                                order.items.map((item) => {
+                                                    const groupedModifiers = groupModifiers(item.modifiers_snapshot);
+                                                    const hasStructuredModifiers =
+                                                        groupedModifiers.additions.length > 0 ||
+                                                        groupedModifiers.removals.length > 0 ||
+                                                        groupedModifiers.notes.length > 0;
+                                                    return (
                                                     <div key={item.id} className="px-4 py-3 flex items-center justify-between gap-3">
                                                         <div className="flex items-center gap-3">
                                                             <div className="w-8 h-8 bg-orange-50 text-orange-600 rounded-lg flex items-center justify-center text-xs font-black shrink-0">
@@ -373,7 +387,26 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                                                 <p className="font-medium text-slate-800 text-sm leading-tight">
                                                                     {item.product_name || `Producto #${item.product_id}`}
                                                                 </p>
-                                                                {item.notes && <p className="text-xs text-slate-400 italic">{item.notes}</p>}
+                                                                {hasStructuredModifiers && (
+                                                                    <div className="mt-1 space-y-0.5 border-l-2 border-orange-200 pl-2 text-xs text-slate-500">
+                                                                        {groupedModifiers.additions.map((modifier, index) => (
+                                                                            <div key={`add-${index}`}>+ {modifier.name}</div>
+                                                                        ))}
+                                                                        {groupedModifiers.removals.map((modifier, index) => (
+                                                                            <div key={`remove-${index}`} className="text-red-400">
+                                                                                - Sin {modifier.name}
+                                                                            </div>
+                                                                        ))}
+                                                                        {groupedModifiers.notes.map((modifier, index) => (
+                                                                            <div key={`note-${index}`} className="italic text-slate-600">
+                                                                                "{modifier.name}"
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                                {!hasStructuredModifiers && item.notes && (
+                                                                    <p className="text-xs text-slate-400 italic">{item.notes}</p>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         <div className="text-right shrink-0">
@@ -381,7 +414,7 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                                             <p className="text-[11px] text-slate-400">{fmt(item.price)} c/u</p>
                                                         </div>
                                                     </div>
-                                                ))
+                                                )})
                                             ) : (
                                                 <p className="py-10 text-center text-slate-400 text-sm italic">Sin productos agregados</p>
                                             )}
@@ -438,7 +471,11 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                                     {!showConfirmClose ? (
                                         <button
                                             onClick={() => setShowConfirmClose(true)}
-                                            disabled={order.status === 'paid' || order.status === 'cancelled'}
+                                            disabled={
+                                                order.status === 'paid' ||
+                                                order.status === 'cancelled' ||
+                                                Number(order.remaining_balance ?? order.total) > 0
+                                            }
                                             className="flex-1 py-2.5 border border-slate-300 text-slate-500 rounded-xl font-medium hover:bg-slate-50 transition-all flex items-center justify-center gap-1.5 text-sm"
                                         >
                                             <Ban className="w-4 h-4" />
@@ -472,7 +509,11 @@ export default function ActiveOrderModal({ isOpen, onClose, table, onOrderUpdate
                 onClose={() => setShowPayment(false)}
                 order={paymentOrderShape}
                 tableNumber={table.number}
-                onSuccess={() => {
+                onPaymentRecorded={() => {
+                    void loadOrder();
+                    onOrderUpdate();
+                }}
+                onOrderSettled={() => {
                     setShowPayment(false);
                     onClose();
                     onOrderUpdate();

@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Search, Filter, Eye, Printer, X, Loader2, Minus, Trash, RefreshCw, CreditCard, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { orderService, Order, OrderStatus } from '../services/orderService';
+import { useAuth } from '@/app/modules/auth/context/AuthContext';
+import { useOrderSocket } from '../hooks/useOrderSocket';
+import { orderService, Order, OrderCreate, OrderStatus } from '../services/orderService';
 import { tableService, Table } from '../../tables/services/tableService';
 import { menuService, Product } from '../../menu/services/menuService';
 import { customerService, Customer } from '../../customers/services/customerService';
@@ -13,9 +15,35 @@ import { Receipt as ReceiptData } from '../../payments/services/paymentService';
 import { CustomerCreateModal } from '../components/CustomerCreateModal';
 import { OrderDetailModal } from '../components/OrderDetailModal';
 import { ProductCustomizationModal, CustomizedProduct } from '../components/ProductCustomizationModal';
+import type { OrderItemModifierSnapshot } from '../types/modifiers';
+import { areIdListsEqual, groupModifiers, normalizeSelectionIds } from '../utils/modifiers';
 import { formatNumber } from '@/lib/formatNumber';
 
+interface NewOrderItem {
+  id: number;
+  product_id: number;
+  name: string;
+  product_name?: string;
+  quantity: number;
+  price: number;
+  notes?: string;
+  extras_ids: number[];
+  removed_ingredient_ids: number[];
+  modifiers_snapshot: OrderItemModifierSnapshot[];
+}
+
+interface NewOrderDraft {
+  customer_name: string;
+  customer_id: number | null;
+  table_id: string;
+  items: NewOrderItem[];
+  apply_tip: boolean;
+  aplica_impuesto: boolean;
+}
+
 export default function Pedidos() {
+  const { user } = useAuth();
+  const companyId = user?.id_empresa ? String(user.id_empresa) : '';
   const [pedidos, setPedidos] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -60,15 +88,15 @@ export default function Pedidos() {
   const [selectedProductForCustomization, setSelectedProductForCustomization] = useState<Product | null>(null);
 
   // New Order State
-  const [newOrder, setNewOrder] = useState({
+  const [newOrder, setNewOrder] = useState<NewOrderDraft>({
     customer_name: '',
     customer_id: null as number | null,
     table_id: 'null', // 'null' for Takeaway, number for specific table
-    items: [] as any[],
+    items: [],
     apply_tip: false,
     aplica_impuesto: true
   });
-  const [isParaLlevar, setIsParaLlevar] = useState(false);
+  const { lastEvent } = useOrderSocket(companyId);
 
   // ── ESC to close modal ──────────────────────────────
   useEffect(() => {
@@ -91,7 +119,7 @@ export default function Pedidos() {
     return () => { document.body.style.overflow = ''; };
   }, [isModalOpen]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [ordersResponse, tablesData, productsData, customersData, companySettings] = await Promise.all([
@@ -119,11 +147,19 @@ export default function Pedidos() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentPage, limit]);
 
   useEffect(() => {
     fetchData();
-  }, [currentPage]);
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (!lastEvent) {
+      return;
+    }
+
+    fetchData();
+  }, [fetchData, lastEvent]);
 
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,16 +176,16 @@ export default function Pedidos() {
 
     setIsSubmitting(true);
     try {
-      const payload = {
+      const payload: OrderCreate = {
         customer_name: newOrder.customer_name || null,
         customer_id: newOrder.customer_id,
         table_id: (newOrder.table_id === 'null' || newOrder.table_id === 'para_llevar') ? null : parseInt(newOrder.table_id),
-        items: newOrder.items.map((item: any) => ({
-          product_id: item.product_id || item.id,
+        items: newOrder.items.map((item) => ({
+          product_id: item.product_id,
           quantity: item.quantity,
           notes: item.notes || null,
-          extras_ids: item.extras_ids || [],
-          removed_ingredient_ids: item.removed_ingredient_ids || []
+          extras_ids: item.extras_ids,
+          removed_ingredient_ids: item.removed_ingredient_ids
         })),
         apply_tip: newOrder.apply_tip,
         aplica_impuesto: newOrder.aplica_impuesto
@@ -158,7 +194,6 @@ export default function Pedidos() {
       toast.success('✅ Orden creada y enviada a cocina');
       setIsModalOpen(false);
       setNewOrder({ customer_name: '', customer_id: null, table_id: 'null', items: [], apply_tip: false, aplica_impuesto: true });
-      setIsParaLlevar(false);
       setSelectedCategory('Todas');
       fetchData();
     } catch (error: any) {
@@ -175,14 +210,16 @@ export default function Pedidos() {
   };
 
   const handleAddCustomizedProduct = (customized: CustomizedProduct) => {
-    const defaultNotes = customized.notes || undefined;
+    const normalizedNotes = customized.notes || undefined;
+    const normalizedExtras = normalizeSelectionIds(customized.extras_ids);
+    const normalizedRemovedIngredients = normalizeSelectionIds(customized.removed_ingredient_ids);
     
     // Check if identical item already exists to increment quantity
-    const existingItemIndex = newOrder.items.findIndex((item: any) => {
-       const sameId = (item.product_id || item.id) === customized.product.id;
-       const sameNotes = item.notes === defaultNotes;
-       const sameExtras = JSON.stringify(item.extras_ids || []) === JSON.stringify(customized.extras_ids || []);
-       const sameRemoved = JSON.stringify(item.removed_ingredient_ids || []) === JSON.stringify(customized.removed_ingredient_ids || []);
+    const existingItemIndex = newOrder.items.findIndex((item) => {
+       const sameId = item.product_id === customized.product.id;
+       const sameNotes = item.notes === normalizedNotes;
+       const sameExtras = areIdListsEqual(item.extras_ids, normalizedExtras);
+       const sameRemoved = areIdListsEqual(item.removed_ingredient_ids, normalizedRemovedIngredients);
        return sameId && sameNotes && sameExtras && sameRemoved;
     });
 
@@ -201,11 +238,10 @@ export default function Pedidos() {
           name: customized.product.name,
           quantity: customized.quantity,
           price: customized.final_price,
-          notes: defaultNotes,
-          extras_ids: customized.extras_ids,
-          removed_ingredient_ids: customized.removed_ingredient_ids,
-          extras_names: customized.extras_names,
-          removed_ingredient_names: customized.removed_ingredient_names
+          notes: normalizedNotes,
+          extras_ids: normalizedExtras,
+          removed_ingredient_ids: normalizedRemovedIngredients,
+          modifiers_snapshot: customized.modifiers_snapshot
         }]
       }));
     }
@@ -214,7 +250,7 @@ export default function Pedidos() {
   const updateItemQuantity = (id: number, delta: number) => {
     setNewOrder(prev => ({
       ...prev,
-      items: prev.items.map((i: any) => {
+      items: prev.items.map((i) => {
         if (i.id === id) {
           const newQty = Math.max(1, i.quantity + delta);
           return { ...i, quantity: newQty };
@@ -227,7 +263,7 @@ export default function Pedidos() {
   const removeItemFromOrder = (id: number) => {
     setNewOrder(prev => ({
       ...prev,
-      items: prev.items.filter((i: any) => i.id !== id)
+      items: prev.items.filter((i) => i.id !== id)
     }));
   };
 
@@ -242,14 +278,32 @@ export default function Pedidos() {
   };
 
   const handleOpenPayment = (order: Order) => {
-    setSelectedOrderForPayment(order);
-    setIsPaymentModalOpen(true);
+    void (async () => {
+      try {
+        setIsLoadingDetail(order.id);
+        const detailedOrder = await orderService.getOrder(order.id);
+        setSelectedOrderForPayment(detailedOrder);
+        setIsPaymentModalOpen(true);
+      } catch (error) {
+        toast.error('Error al cargar el pedido para cobro');
+      } finally {
+        setIsLoadingDetail(null);
+      }
+    })();
   };
 
-  const handlePaymentSuccess = () => {
-    setIsPaymentModalOpen(false);
-    fetchData(); // Refresh to show 'paid' status
-  };
+  const refreshSelectedOrderForPayment = useCallback(async () => {
+    if (!selectedOrderForPayment) {
+      return;
+    }
+
+    try {
+      const refreshedOrder = await orderService.getOrder(selectedOrderForPayment.id);
+      setSelectedOrderForPayment(refreshedOrder);
+    } catch {
+      // Si falla el refresh puntual, el listado principal ya se refresca igualmente.
+    }
+  }, [selectedOrderForPayment]);
 
   const handleCustomerCreated = (customer: Customer) => {
     setNewOrder(prev => ({
@@ -301,7 +355,7 @@ export default function Pedidos() {
   });
 
   // Calculate order totals
-  const subtotal = newOrder.items.reduce((acc: number, i: any) => acc + (i.price * i.quantity), 0);
+  const subtotal = newOrder.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const tax = newOrder.aplica_impuesto ? subtotal * (taxRate / 100) : 0;
   const tip = newOrder.apply_tip ? subtotal * 0.10 : 0;
   const total = subtotal + tax + tip;
@@ -661,7 +715,10 @@ export default function Pedidos() {
                         <span className="text-sm font-medium">Agrega productos</span>
                       </div>
                     ) : (
-                      newOrder.items.map((item: any) => (
+                      newOrder.items.map((item) => {
+                        const groupedModifiers = groupModifiers(item.modifiers_snapshot);
+
+                        return (
                         <div key={item.id} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm flex flex-col gap-2">
                           <div className="flex justify-between items-start gap-2">
                             <span className="text-sm font-medium text-slate-900 line-clamp-2 leading-tight">{item.name || item.product_name}</span>
@@ -669,11 +726,11 @@ export default function Pedidos() {
                               <Trash className="w-4 h-4" />
                             </button>
                           </div>
-                          {(item.extras_names?.length > 0 || item.removed_ingredient_names?.length > 0 || item.notes) && (
+                          {(groupedModifiers.additions.length > 0 || groupedModifiers.removals.length > 0 || groupedModifiers.notes.length > 0) && (
                             <div className="text-xs text-slate-500 space-y-0.5 mt-0.5 border-l-2 border-orange-200 pl-2">
-                              {item.extras_names?.map((n: string, i: number) => <div key={`e-${i}`}>+ {n}</div>)}
-                              {item.removed_ingredient_names?.map((n: string, i: number) => <div key={`r-${i}`} className="text-red-400">- Sin {n}</div>)}
-                              {item.notes && <div className="text-slate-600 italic mt-0.5">"{item.notes}"</div>}
+                              {groupedModifiers.additions.map((modifier, index) => <div key={`e-${index}`}>+ {modifier.name}</div>)}
+                              {groupedModifiers.removals.map((modifier, index) => <div key={`r-${index}`} className="text-red-400">- Sin {modifier.name}</div>)}
+                              {groupedModifiers.notes.map((modifier, index) => <div key={`n-${index}`} className="text-slate-600 italic mt-0.5">"{modifier.name}"</div>)}
                             </div>
                           )}
                           <div className="flex items-center justify-between mt-1">
@@ -689,7 +746,7 @@ export default function Pedidos() {
                             <span className="font-bold text-slate-800 text-sm text-right">{formatNumber(item.price * item.quantity)}</span>
                           </div>
                         </div>
-                      ))
+                      )})
                     )}
                   </div>
 
@@ -737,10 +794,26 @@ export default function Pedidos() {
 
       <PaymentModal
         isOpen={isPaymentModalOpen}
-        onClose={() => setIsPaymentModalOpen(false)}
+        onClose={() => {
+          setIsPaymentModalOpen(false);
+          setSelectedOrderForPayment(null);
+        }}
         order={selectedOrderForPayment}
-        tableNumber={selectedOrderForPayment?.table_id}
-        onSuccess={handlePaymentSuccess}
+        tableNumber={
+          selectedOrderForPayment?.table_id
+            ? tables.find((table) => table.id === selectedOrderForPayment.table_id)?.number
+              ?? selectedOrderForPayment.table_id
+            : null
+        }
+        onPaymentRecorded={() => {
+          void fetchData();
+          void refreshSelectedOrderForPayment();
+        }}
+        onOrderSettled={() => {
+          setIsPaymentModalOpen(false);
+          setSelectedOrderForPayment(null);
+          void fetchData();
+        }}
       />
 
       <ReceiptComponent

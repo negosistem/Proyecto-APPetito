@@ -1,27 +1,31 @@
 @echo off
+setlocal
+cd /d "%~dp0"
+
 echo ========================================
-echo   APPetito - Iniciando Aplicacion (RAIZ)
+echo   APPetito - Iniciando Aplicacion
 echo ========================================
 echo.
+echo Backend:  http://127.0.0.1:8000
+echo Frontend: http://127.0.0.1:5173
+echo API Docs: http://127.0.0.1:8000/docs
+echo.
 
-REM Iniciar Backend
-echo [1/3] Iniciando Backend FastAPI...
-start "APPetito Backend" cmd /k "cd Backend && venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000"
+echo [1/3] Iniciando Backend...
+start "APPetito Backend" cmd /k "cd /d \"%~dp0\" && npm run start:backend"
 
-ping 127.0.0.1 -n 4 > nul
+timeout /t 3 /nobreak > nul
 
-REM Iniciar Frontend
-echo [2/3] Iniciando Frontend React...
-start "APPetito Frontend" cmd /k "cd Frontend && npm run dev"
+echo [2/3] Iniciando Frontend...
+start "APPetito Frontend" cmd /k "cd /d \"%~dp0\" && npm run start:frontend"
 
-ping 127.0.0.1 -n 6 > nul
+timeout /t 5 /nobreak > nul
 
-REM Abrir navegador
 echo [3/3] Abriendo navegador...
-start http://localhost:5173
+start http://127.0.0.1:5173
 
 echo.
-echo ========================================
-echo   APPetito Iniciado Correctamente!
-echo ========================================
+echo APPetito iniciado.
+echo Para detenerlo usa stop_appetito.bat o npm run stop
+echo.
 pause

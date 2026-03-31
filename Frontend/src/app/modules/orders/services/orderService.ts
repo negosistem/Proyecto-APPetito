@@ -1,12 +1,30 @@
 import { apiClient } from '@/app/shared/services/apiClient';
+import type { OrderItemModifierSnapshot } from '../types/modifiers';
 
 export interface OrderItem {
     id: number;
     product_id: number;
     quantity: number;
     price: number;
+    subtotal?: number;
     notes?: string;
     product_name?: string; // Optional for UI display
+    modifiers_snapshot?: OrderItemModifierSnapshot[];
+}
+
+export interface OrderPaymentRecord {
+    id: number;
+    numero_factura: string;
+    amount: number;
+    subtotal: number;
+    tax: number;
+    tip_amount: number;
+    discount_amount: number;
+    total_amount: number;
+    payment_method: 'cash' | 'card' | 'transfer';
+    change_given?: number | null;
+    created_at: string;
+    status: string;
 }
 
 export type OrderStatus = 'new' | 'pending' | 'accepted' | 'preparing' | 'ready' | 'served' | 'paid' | 'cancelled';
@@ -21,9 +39,13 @@ export interface Order {
     tip: number;
     discount: number;
     total: number;
+    total_amount: number;
+    paid_amount: number;
+    remaining_balance: number;
     customer_name: string | null;
     created_at: string;
     items: OrderItem[];
+    payments: OrderPaymentRecord[];
 }
 
 export interface OrderPaginatedResponse {
@@ -39,6 +61,7 @@ export interface OrderCreate {
     customer_id?: number | null;
     customer_name: string | null;
     apply_tip?: boolean;
+    aplica_impuesto?: boolean;
     items: {
         product_id: number;
         quantity: number;
@@ -82,5 +105,9 @@ export const orderService = {
         // or effectively a no-op/error if backend doesn't exist for generic patch.
         // For now, let's try generic patch in case we add it, but it will 404 currently.
         return apiClient.patch<Order>(`/api/orders/${id}`, data);
-    }
+    },
+
+    async reopenOrder(id: number, motivo: string): Promise<Order> {
+        return apiClient.post<Order>(`/api/orders/${id}/reopen`, { motivo });
+    },
 };

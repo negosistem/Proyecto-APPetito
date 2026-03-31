@@ -1,17 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Printer, Download, Eye, X, Loader2, Ban, AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { Ban, Download, Loader2, Printer, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatNumber } from '@/lib/formatNumber';
-import { useAuth } from '@/app/modules/auth/context/AuthContext';
 
-interface Payment {
-    id: number;
-    numero_factura: string;
-    total_amount: number;
-    change_given?: number | null;
-    table_number?: string | null;
-}
+import { useAuth } from '@/app/modules/auth/context/AuthContext';
+import type { Payment } from '@/app/modules/payments/services/paymentService';
+import { formatNumber } from '@/lib/formatNumber';
 
 interface PaymentSuccessModalProps {
     isOpen: boolean;
@@ -19,225 +13,228 @@ interface PaymentSuccessModalProps {
     onClose: () => void;
 }
 
-export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen, payment, onClose }) => {
+export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({
+    isOpen,
+    payment,
+    onClose,
+}) => {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const { user } = useAuth();
 
     const [isPrintingA4, setIsPrintingA4] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
-
-    // Cancel state
+    const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+    const [pdfLoading, setPdfLoading] = useState(false);
     const [showCancelModal, setShowCancelModal] = useState(false);
-    const [motivoCancelacion, setMotivoCancelacion] = useState("");
+    const [motivoCancelacion, setMotivoCancelacion] = useState('');
     const [cancelando, setCancelando] = useState(false);
-    const { user } = useAuth();
 
-    // Keep thermal printing intact
+    const canCancelInvoice = ['admin', 'administrador', 'super_admin'].includes(
+        (user?.role || '').toLowerCase(),
+    );
+    const isSettled = (payment?.remaining_balance ?? 0) === 0;
+
+    const getAuthHeaders = () => {
+        const token = localStorage.getItem('access_token');
+        return token ? { Authorization: `Bearer ${token}` } : {};
+    };
+
+    const fetchReceipt = async (format: 'pdf' | 'thermal') => {
+        if (!payment) {
+            throw new Error('Pago no disponible');
+        }
+
+        const response = await fetch(
+            `${API_URL}/api/payments/${payment.id}/receipt?format=${format}`,
+            { headers: getAuthHeaders() },
+        );
+        if (!response.ok) {
+            throw new Error('Error al generar el recibo');
+        }
+        return response;
+    };
+
     const handlePrintThermal = async () => {
-        if (!payment) return;
+        if (!payment) {
+            return;
+        }
+
         try {
-            const token = localStorage.getItem('access_token');
-            const url = `${API_URL}/api/payments/${payment.id}/receipt?format=thermal`;
-
-            const response = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) throw new Error('Error al generar recibo thermal');
-
+            const response = await fetchReceipt('thermal');
             const blob = await response.blob();
-            const pdfUrl = URL.createObjectURL(blob);
+            const receiptUrl = window.URL.createObjectURL(blob);
+            const printWindow = window.open(receiptUrl, '_blank');
 
-            const printWindow = window.open(pdfUrl, '_blank');
             if (printWindow) {
-                printWindow.onload = () => { printWindow.print(); };
-            } else {
-                const a = document.createElement('a');
-                a.href = pdfUrl;
-                a.target = '_blank';
-                a.click();
+                printWindow.onload = () => {
+                    printWindow.print();
+                };
             }
         } catch (error) {
-            console.error('Error:', error);
-            alert('Error al visualizar el recibo');
+            console.error(error);
+            toast.error('Error al visualizar el ticket');
         }
     };
 
-    const handlePreview = async () => {
-        if (!payment) return;
-        try {
-            const token = localStorage.getItem('access_token');
-            const url = `${API_URL}/api/payments/${payment.id}/receipt?format=html`;
-            const response = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!response.ok) throw new Error('Error al generar vista previa');
-            const html = await response.text();
-            const previewWindow = window.open('', '_blank');
-            if (previewWindow) {
-                previewWindow.document.write(html);
-                previewWindow.document.close();
-            }
-        } catch (error) {
-            console.error('Error:', error);
-            alert('Error al mostrar vista previa');
-        }
-    };
-
-    // NUEVO: Ver e Imprimir A4 abriendo el PDF en una nueva pestaña (evitar popup blocker)
     const handlePrintA4 = async () => {
-        if (!payment) return;
-        setIsPrintingA4(true);
-
-        // Abrir pestaña sincronamente para evitar el bloqueo de popups del navegador
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-            printWindow.document.write('Generando factura PDF, por favor espere...');
+        if (!payment) {
+            return;
         }
 
+        setIsPrintingA4(true);
         try {
-            const token = localStorage.getItem('access_token');
-            const response = await fetch(`${API_URL}/api/payments/${payment.id}/invoice/pdf`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            
-            if (!response.ok) throw new Error('Error al obtener PDF');
-            
+            const response = await fetchReceipt('pdf');
             const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            
-            if (printWindow) {
-                printWindow.location.href = url;
-            } else {
-                // Fallback en caso de que el navegador bloquee incluso la ventana síncrona
-                window.open(url, '_blank');
-            }
-            
+            const receiptUrl = window.URL.createObjectURL(blob);
+            window.open(receiptUrl, '_blank');
         } catch (error) {
-            console.error("Error visualizando A4", error);
-            if (printWindow) printWindow.close();
-            alert('Error al visualizar factura');
+            console.error(error);
+            toast.error('Error al visualizar el PDF');
         } finally {
             setIsPrintingA4(false);
         }
     };
 
-    // NUEVO: Download PDF using the new invoice endpoint
     const handleDownloadPDF = async () => {
-        if (!payment) return;
+        if (!payment) {
+            return;
+        }
+
         setIsDownloading(true);
         try {
-            const token = localStorage.getItem('access_token');
-            const response = await fetch(`${API_URL}/api/payments/${payment.id}/invoice/pdf`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            
-            if (!response.ok) throw new Error('Error al obtener PDF');
-            
+            const response = await fetchReceipt('pdf');
             const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = `Factura_${payment.numero_factura}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            const receiptUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = receiptUrl;
+            link.download = `Recibo_${payment.numero_factura}.pdf`;
+            link.click();
+            window.URL.revokeObjectURL(receiptUrl);
         } catch (error) {
-            console.error("Error downloading PDF", error);
-            alert('Error al descargar la factura');
+            console.error(error);
+            toast.error('Error al descargar el PDF');
         } finally {
             setIsDownloading(false);
         }
     };
 
+    const closeCancelModal = () => {
+        setShowCancelModal(false);
+        setMotivoCancelacion('');
+    };
+
     const handleCancelPayment = async () => {
-        if (motivoCancelacion.length < 10 || !payment) return;
+        if (!payment || motivoCancelacion.trim().length < 10) {
+            return;
+        }
+
         try {
             setCancelando(true);
-            const token = localStorage.getItem('access_token');
             const response = await fetch(`${API_URL}/api/payments/${payment.id}/cancel`, {
-                method: "POST",
+                method: 'POST',
                 headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...getAuthHeaders(),
                 },
-                body: JSON.stringify({ motivo: motivoCancelacion }),
+                body: JSON.stringify({ motivo: motivoCancelacion.trim() }),
             });
-            
+
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.detail || "Error al cancelar la factura");
+                const errorPayload = await response.json().catch(() => null);
+                throw new Error(errorPayload?.detail || 'Error al cancelar la factura');
             }
-            
-            toast.success("Factura cancelada. Nota de crédito emitida.");
-            setShowCancelModal(false);
-            onClose(); // cerrar todo
-        } catch (error: any) {
-            toast.error(error.message);
+
+            toast.success('Pago cancelado correctamente.');
+            closeCancelModal();
+            onClose();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Error al cancelar la factura');
         } finally {
             setCancelando(false);
         }
     };
 
-    // Handle ESC key
     useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        if (isOpen) window.addEventListener('keydown', handleEsc);
-        return () => window.removeEventListener('keydown', handleEsc);
-    }, [isOpen, onClose]);
-
-    // 🖨️ Auto-print thermal receipt when a new successful payment opens this modal
-    useEffect(() => {
-        if (isOpen && payment) {
-            const timer = setTimeout(async () => {
-                if (!payment) return;
-                try {
-                    const token = localStorage.getItem('access_token');
-                    // Automatically fetch and open the PDF invoice instead of thermal
-                    const response = await fetch(`${API_URL}/api/payments/${payment.id}/invoice/pdf`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    
-                    if (!response.ok) return;
-                    
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    
-                    // Open the PDF in a new tab for saving/printing
-                    window.open(url, '_blank');
-                    
-                } catch (e) {
-                    console.error('Auto-pdf error:', e);
+        if (!isOpen || !payment) {
+            setPdfLoading(false);
+            setPdfUrl((currentUrl) => {
+                if (currentUrl) {
+                    window.URL.revokeObjectURL(currentUrl);
                 }
-            }, 700);
-            return () => clearTimeout(timer);
+                return null;
+            });
+            return;
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen, payment?.id]);
 
-    if (!isOpen || !payment) return null;
+        let isActive = true;
+        setPdfLoading(true);
+        setPdfUrl((currentUrl) => {
+            if (currentUrl) {
+                window.URL.revokeObjectURL(currentUrl);
+            }
+            return null;
+        });
+
+        const loadPdf = async () => {
+            try {
+                const response = await fetch(
+                    `${API_URL}/api/payments/${payment.id}/receipt?format=pdf`,
+                    { headers: getAuthHeaders() },
+                );
+                if (!response.ok) {
+                    throw new Error('No se pudo obtener el PDF');
+                }
+
+                const blob = await response.blob();
+                const nextUrl = window.URL.createObjectURL(blob);
+                if (!isActive) {
+                    window.URL.revokeObjectURL(nextUrl);
+                    return;
+                }
+
+                setPdfUrl(nextUrl);
+            } catch (error) {
+                console.error(error);
+            } finally {
+                if (isActive) {
+                    setPdfLoading(false);
+                }
+            }
+        };
+
+        void loadPdf();
+
+        return () => {
+            isActive = false;
+        };
+    }, [API_URL, isOpen, payment]);
+
+    useEffect(() => {
+        return () => {
+            if (pdfUrl) {
+                window.URL.revokeObjectURL(pdfUrl);
+            }
+        };
+    }, [pdfUrl]);
+
+    if (!isOpen || !payment) {
+        return null;
+    }
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
             <motion.div
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
-                className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl overflow-hidden relative"
+                className="bg-white rounded-3xl max-w-4xl w-full p-8 shadow-2xl overflow-hidden relative flex flex-col md:flex-row gap-8 max-h-[90vh]"
             >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-green-50 rounded-full -mr-16 -mt-16 z-0" />
-
-                <div className="relative z-10">
+                <div className="relative z-10 w-full md:w-1/2 flex flex-col h-full overflow-y-auto pr-2">
                     <div className="flex justify-between items-center mb-8">
-                        <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 bg-green-100 rounded-2xl flex items-center justify-center">
-                                <span className="text-2xl">✅</span>
-                            </div>
-                            <h2 className="text-3xl font-black text-slate-800 tracking-tight">¡Éxito!</h2>
+                        <div>
+                            <h2 className="text-3xl font-black text-slate-800 tracking-tight">
+                                {isSettled ? 'Cuenta saldada' : 'Pago parcial registrado'}
+                            </h2>
+                            <p className="text-sm text-slate-500 mt-1">{payment.numero_factura}</p>
                         </div>
                         <button
                             onClick={onClose}
@@ -247,39 +244,41 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
                         </button>
                     </div>
 
-                    <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-3xl p-6 mb-8 border border-slate-200">
-                        <div className="text-center mb-6">
-                            <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Número de Factura</p>
-                            <p className="text-3xl font-mono font-black text-blue-600">{payment.numero_factura}</p>
-                            {payment.table_number && (
-                                <div className="mt-3 flex items-center justify-center gap-2 text-green-600 bg-green-50 py-2 px-3 rounded-lg border border-green-100">
-                                    <span>🪑</span>
-                                    <span className="font-bold text-sm">Mesa {payment.table_number} liberada automáticamente</span>
-                                </div>
-                            )}
+                    <div className="bg-slate-50 rounded-3xl p-6 mb-8 border border-slate-200 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="bg-white rounded-2xl p-4 shadow-sm">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Abono actual</p>
+                                <p className="text-xl font-black text-slate-900">{formatNumber(payment.amount)}</p>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4 shadow-sm">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pagado acumulado</p>
+                                <p className="text-xl font-black text-emerald-700">{formatNumber(payment.paid_amount)}</p>
+                            </div>
+                            <div className="bg-white rounded-2xl p-4 shadow-sm">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pendiente</p>
+                                <p className="text-xl font-black text-orange-600">{formatNumber(payment.remaining_balance)}</p>
+                            </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-6 bg-white rounded-2xl p-5 shadow-sm">
-                            <div className="space-y-1">
-                                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Total Pagado</p>
-                                <p className="text-xl font-black text-slate-800 text-right">{formatNumber(payment.total_amount)}</p>
+                        <div className="grid grid-cols-2 gap-4 bg-white rounded-2xl p-5 shadow-sm">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total orden</p>
+                                <p className="text-xl font-black text-slate-800">{formatNumber(payment.order_total_amount)}</p>
                             </div>
-                            {payment.change_given && Number(payment.change_given) > 0 && (
-                                <div className="space-y-1 border-l pl-6 border-slate-100">
-                                    <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Cambio Entregado</p>
-                                    <p className="text-xl font-black text-green-600 text-right">{formatNumber(payment.change_given)}</p>
-                                </div>
-                            )}
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Metodo</p>
+                                <p className="text-xl font-black text-slate-800 uppercase">{payment.payment_method}</p>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 mt-auto">
                         <button
                             onClick={handlePrintThermal}
-                            className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-orange-500 to-red-500 text-white py-4 rounded-2xl hover:shadow-xl transition-all duration-300 font-bold group"
+                            className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-orange-500 to-red-500 text-white py-4 rounded-2xl hover:shadow-xl transition-all duration-300 font-bold"
                         >
-                            <Printer size={20} className="group-hover:scale-110 transition-transform" />
-                            Imprimir Ticket (80mm)
+                            <Printer size={20} />
+                            Imprimir Ticket
                         </button>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -289,91 +288,81 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
                                 className="flex items-center justify-center gap-2 bg-slate-800 text-white py-3.5 rounded-2xl hover:bg-slate-900 transition-colors font-bold text-sm"
                             >
                                 {isPrintingA4 ? <Loader2 size={18} className="animate-spin" /> : <Printer size={18} />}
-                                Ver / Imprimir A4
+                                Vista PDF
                             </button>
 
                             <button
-                                onClick={handlePreview}
-                                className="flex items-center justify-center gap-2 border-2 border-slate-200 text-slate-700 py-3.5 rounded-2xl hover:bg-slate-50 transition-colors font-bold text-sm"
+                                onClick={handleDownloadPDF}
+                                disabled={isDownloading}
+                                className="flex items-center justify-center gap-2 border border-slate-200 text-slate-700 py-3.5 rounded-2xl hover:bg-slate-50 transition-colors font-bold text-sm"
                             >
-                                <Eye size={18} />
-                                Vista Previa
+                                {isDownloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                                Descargar
                             </button>
                         </div>
-
-                        <button
-                            onClick={handleDownloadPDF}
-                            disabled={isDownloading}
-                            className="w-full flex items-center justify-center gap-2 text-slate-500 py-3 rounded-2xl hover:bg-slate-50 transition-colors font-semibold text-sm border border-slate-200 hover:border-slate-300"
-                        >
-                            {isDownloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                            Descargar PDF
-                        </button>
                     </div>
 
-                    <div className="flex justify-between items-center mt-6">
-                        {user?.rol?.nombre === "admin" && (
+                    <div className="flex justify-between items-center mt-6 pt-4 border-t border-slate-100">
+                        {canCancelInvoice && (
                             <button
                                 onClick={() => setShowCancelModal(true)}
                                 className="flex items-center gap-1.5 text-sm px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
                             >
                                 <Ban size={14} />
-                                Cancelar factura
+                                Cancelar pago
                             </button>
                         )}
                         <button
                             onClick={onClose}
                             className="flex-1 text-right py-2 text-slate-400 hover:text-slate-600 transition-colors text-xs font-bold uppercase tracking-widest"
                         >
-                            Finalizar y Cerrar
+                            {isSettled ? 'Finalizar y Cerrar' : 'Seguir cobrando'}
                         </button>
                     </div>
                 </div>
+
+                <div className="w-full md:w-1/2 flex flex-col bg-slate-100 rounded-2xl border border-slate-200 overflow-hidden relative min-h-[400px]">
+                    <div className="bg-slate-800 text-white py-2 px-4 flex justify-between items-center">
+                        <span className="text-sm font-semibold">Vista previa del recibo</span>
+                    </div>
+
+                    {pdfLoading && !pdfUrl ? (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/50 backdrop-blur-sm z-10 text-slate-500">
+                            <Loader2 size={32} className="animate-spin mb-3 text-orange-500" />
+                            <p className="font-medium">Generando PDF...</p>
+                        </div>
+                    ) : null}
+
+                    {pdfUrl ? (
+                        <iframe
+                            src={`${pdfUrl}#toolbar=1&navpanes=0&zoom=75`}
+                            className="w-full h-full flex-1 border-0"
+                            title="Recibo PDF"
+                        />
+                    ) : (
+                        !pdfLoading && (
+                            <div className="absolute inset-0 flex items-center justify-center text-slate-400">
+                                <p>No se pudo visualizar el PDF.</p>
+                            </div>
+                        )
+                    )}
+                </div>
             </motion.div>
 
-            {/* Modal de Confirmación de Cancelación */}
             {showCancelModal && (
-                <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
-                    <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-xl relative z-[120]" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                                <AlertTriangle size={18} className="text-red-600" />
-                            </div>
-                            <div>
-                                <h3 className="font-medium text-sm">Cancelar factura</h3>
-                                <p className="text-xs text-slate-500">
-                                    #{payment.id} — Esta acción no se puede deshacer
-                                </p>
-                            </div>
-                        </div>
-
-                        <p className="text-xs text-slate-500 mb-4">
-                            Se emitirá una Nota de Crédito que anula la factura original.
-                            Ambos documentos quedarán registrados en el sistema.
-                        </p>
-
-                        <div className="mb-4">
-                            <label className="text-xs font-medium block mb-1">
-                                Motivo de cancelación *
-                            </label>
-                            <textarea
-                                value={motivoCancelacion}
-                                onChange={e => setMotivoCancelacion(e.target.value)}
-                                placeholder="Ej: Error en configuración de productos..."
-                                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none h-20 focus:outline-none focus:ring-2 focus:ring-red-500"
-                                minLength={10}
-                            />
-                            {motivoCancelacion.length > 0 && motivoCancelacion.length < 10 && (
-                                <p className="text-xs text-red-500 mt-1">Mínimo 10 caracteres</p>
-                            )}
-                        </div>
-
-                        <div className="flex gap-2 justify-end">
+                <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-xl">
+                        <h3 className="font-medium text-sm mb-4">Cancelar pago</h3>
+                        <textarea
+                            value={motivoCancelacion}
+                            onChange={(event) => setMotivoCancelacion(event.target.value)}
+                            placeholder="Motivo de cancelacion"
+                            className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none h-20 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            minLength={10}
+                        />
+                        <div className="flex gap-2 justify-end mt-4">
                             <button
-                                onClick={() => {
-                                    setShowCancelModal(false);
-                                    setMotivoCancelacion("");
-                                }}
+                                onClick={closeCancelModal}
                                 className="text-sm px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
                             >
                                 Volver
@@ -383,7 +372,7 @@ export const PaymentSuccessModal: React.FC<PaymentSuccessModalProps> = ({ isOpen
                                 onClick={handleCancelPayment}
                                 className="text-sm px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
-                                {cancelando ? "Procesando..." : "Confirmar cancelación"}
+                                {cancelando ? 'Procesando...' : 'Confirmar cancelacion'}
                             </button>
                         </div>
                     </div>

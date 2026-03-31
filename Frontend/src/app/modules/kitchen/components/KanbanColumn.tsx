@@ -2,18 +2,20 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Play, AlertCircle, ChefHat } from 'lucide-react';
 import { apiClient } from '../../../shared/services/apiClient';
+import type { KitchenOrder, KitchenOrderItem } from '../types';
+import { groupModifiers } from '@/app/modules/orders/utils/modifiers';
 
 interface Props {
     title: string;
     color: 'red' | 'yellow' | 'blue' | 'green';
-    orders: any[];
+    orders: KitchenOrder[];
     count: number;
-    onOrderClick: (order: any) => void;
+    onOrderClick: (order: KitchenOrder) => void;
     onUpdate?: () => void;
     tick: number;
 }
 
-export default function KanbanColumn({ title, color, orders, count, onOrderClick, onUpdate, tick }: Props) {
+export default function KanbanColumn({ title, color, orders, count, onOrderClick, onUpdate, tick: _tick }: Props) {
     const [expandedId, setExpandedId] = useState<number | null>(null);
 
     const colorClasses = {
@@ -50,7 +52,7 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
     const isColumnPreparing = title === 'PREPARANDO';
     let countAlertas = 0;
 
-    const isItemOverdue = (order: any, item: any) => {
+    const isItemOverdue = (_order: KitchenOrder, item: KitchenOrderItem) => {
         // Alertas solo en estado 'preparing'
         if (item.state !== 'preparing' || !item.started_at) return false;
 
@@ -61,7 +63,7 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
         return elapsedMinutes > limit;
     };
 
-    const getDishTimer = (item: any) => {
+    const getDishTimer = (item: KitchenOrderItem) => {
         if (!item.started_at) return "00:00";
 
         // Si ya terminó, mostrar tiempo final. Si no, tiempo actual.
@@ -75,7 +77,7 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
     };
 
     orders.forEach(order => {
-        const hasOverdue = order.items.some((item: any) => isItemOverdue(order, item));
+        const hasOverdue = order.items.some((item) => isItemOverdue(order, item));
         if (hasOverdue) countAlertas++;
     });
 
@@ -109,7 +111,7 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
 
                         let orderTodosVencidos = false;
                         if (isColumnPreparing && order.items.length > 0) {
-                            orderTodosVencidos = order.items.every((item: any) => isItemOverdue(order, item));
+                            orderTodosVencidos = order.items.every((item) => isItemOverdue(order, item));
                         }
 
                         // Compact view for Listo
@@ -156,21 +158,38 @@ export default function KanbanColumn({ title, color, orders, count, onOrderClick
 
                                 {/* Items Preview */}
                                 <div className="space-y-2 mt-2">
-                                    {order.items.slice(0, 4).map((item: any, idx: number) => {
+                                    {order.items.slice(0, 4).map((item, idx: number) => {
                                         const vencido = isItemOverdue(order, item);
                                         const isPreparing = item.state === 'preparing';
+                                        const groupedModifiers = groupModifiers(item.modifiers_snapshot);
                                         return (
-                                            <div key={idx} className={`flex items-center gap-2 text-base ${vencido ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-800'}`}>
-                                                <span className={`w-2.5 h-2.5 shrink-0 rounded-full ${item.state === 'ready' ? 'bg-green-500' :
-                                                    isPreparing ? 'bg-blue-500' :
-                                                        'bg-gray-300'
-                                                    }`}></span>
-                                                <span className="truncate flex-1">{item.quantity}x {item.product_name}</span>
-                                                {(isPreparing || item.state === 'ready') && item.started_at && (
-                                                    <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0 ${vencido ? 'bg-red-100' :
-                                                        item.state === 'ready' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
-                                                        {getDishTimer(item)}
-                                                    </span>
+                                            <div key={idx} className={`space-y-1 ${vencido ? 'text-red-600 font-bold animate-pulse' : 'font-medium text-slate-800'}`}>
+                                                <div className="flex items-center gap-2 text-base">
+                                                    <span className={`w-2.5 h-2.5 shrink-0 rounded-full ${item.state === 'ready' ? 'bg-green-500' :
+                                                        isPreparing ? 'bg-blue-500' :
+                                                            'bg-gray-300'
+                                                        }`}></span>
+                                                    <span className="truncate flex-1">{item.quantity}x {item.product_name}</span>
+                                                    {(isPreparing || item.state === 'ready') && item.started_at && (
+                                                        <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0 ${vencido ? 'bg-red-100' :
+                                                            item.state === 'ready' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700'}`}>
+                                                            {getDishTimer(item)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {(groupedModifiers.additions.length > 0 || groupedModifiers.removals.length > 0) && (
+                                                    <div className="ml-4 flex flex-wrap gap-1.5 text-[11px] font-semibold">
+                                                        {groupedModifiers.additions.length > 0 && (
+                                                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                                                                +{groupedModifiers.additions.length}
+                                                            </span>
+                                                        )}
+                                                        {groupedModifiers.removals.length > 0 && (
+                                                            <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-700">
+                                                                -{groupedModifiers.removals.length}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
                                         );

@@ -4,5 +4,10 @@ sqlalchemy
 psycopg2-binary
 pydantic-settings
 python-dotenv
-passlib[bcrypt]
+bcrypt
+python-jose[cryptography]
+python-multipart
+email-validator
+alembic
 reportlab==4.0.7
+requests

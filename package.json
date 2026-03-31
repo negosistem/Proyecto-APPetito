@@ -4,11 +4,12 @@
     "description": "Sistema de gestión de restaurantes APPetito",
     "scripts": {
         "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
-        "start:backend": "cd APPetito2.0 && .\\venv\\Scripts\\activate.bat && uvicorn app.main:app --reload --port 8000",
-        "start:frontend": "cd \"Material prototito appetito\" && npm run dev",
+        "start:backend": "Backend\\venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port 8000 --app-dir Backend",
+        "start:frontend": "npm --prefix Frontend run dev -- --host 127.0.0.1 --port 5173",
+        "stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\stop_appetito.ps1",
         "install:all": "concurrently \"npm run install:backend\" \"npm run install:frontend\"",
-        "install:backend": "cd APPetito2.0 && .\\venv\\Scripts\\activate.bat && pip install -r requirements.txt",
-        "install:frontend": "cd \"Material prototito appetito\" && npm install"
+        "install:backend": "if not exist Backend\\venv\\Scripts\\python.exe py -m venv Backend\\venv && Backend\\venv\\Scripts\\python.exe -m pip install -r Backend\\requirements.txt",
+        "install:frontend": "npm --prefix Frontend install"
     },
     "devDependencies": {
         "concurrently": "^8.2.2"

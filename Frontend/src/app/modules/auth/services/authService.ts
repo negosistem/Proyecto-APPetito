@@ -22,6 +22,15 @@ export interface LoginResponse {
     token_type: string;
 }
 
+export interface RegisterRestaurantPayload {
+    restaurant_name: string;
+    owner_name: string;
+    email: string;
+    password: string;
+    phone?: string;
+    address?: string;
+}
+
 export const authService = {
     /**
      * Inicia sesión en el backend
@@ -41,9 +50,9 @@ export const authService = {
     },
 
     /**
-     * Registra un nuevo usuario
+     * Registra un nuevo restaurante con su usuario administrador inicial
      */
-    async register(userData: any): Promise<User> {
+    async register(userData: RegisterRestaurantPayload): Promise<User> {
         return apiClient.post<User>('/auth/register', userData);
     },
 

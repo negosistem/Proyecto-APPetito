@@ -1,11 +1,17 @@
 import enum
-from sqlalchemy import Column, Integer, String, Float, Numeric, ForeignKey, DateTime, Boolean, Enum as SAEnum
+from decimal import Decimal
+from sqlalchemy import Column, Integer, String, Float, Numeric, ForeignKey, DateTime, Boolean, Enum as SAEnum, JSON, Text
 from sqlalchemy.orm import relationship
- from sqlalchemy.sql import func
+from sqlalchemy.sql import func
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import JSONB
 from app.db.session import Base
 from app.models.table import Table
 from app.models.product import Product
 from app.models.user import User
+
+MODIFIERS_SNAPSHOT_TYPE = JSON().with_variant(JSONB(astext_type=Text()), "postgresql")
 
 class OrderStatus(str, enum.Enum):
     PENDING = "pending"
@@ -63,7 +69,62 @@ class Order(Base):
     user = relationship("User")
     customer = relationship("Customer")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
-    payment = relationship("Payment", back_populates="order", uselist=False)
+    payments = relationship(
+        "Payment",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="Payment.created_at.asc()",
+    )
+
+    @hybrid_property
+    def total_amount(self):
+        return self.total or Decimal("0")
+
+    @total_amount.setter
+    def total_amount(self, value):
+        self.total = value
+
+    @total_amount.expression
+    def total_amount(cls):
+        return func.coalesce(cls.total, 0)
+
+    @hybrid_property
+    def paid_amount(self):
+        from app.models.payment import PaymentStatus
+
+        return sum(
+            (
+                payment.amount or Decimal("0")
+                for payment in self.payments
+                if payment.status == PaymentStatus.CONFIRMED
+            ),
+            Decimal("0"),
+        )
+
+    @paid_amount.expression
+    def paid_amount(cls):
+        from app.models.payment import Payment, PaymentStatus
+
+        return (
+            select(func.coalesce(func.sum(Payment.amount), 0))
+            .where(
+                Payment.order_id == cls.id,
+                Payment.status == PaymentStatus.CONFIRMED,
+            )
+            .scalar_subquery()
+        )
+
+    @hybrid_property
+    def remaining_balance(self):
+        remaining = (self.total_amount or Decimal("0")) - self.paid_amount
+        return remaining if remaining > Decimal("0") else Decimal("0")
+
+    @remaining_balance.expression
+    def remaining_balance(cls):
+        return func.greatest(
+            func.coalesce(cls.total, 0) - cls.paid_amount,
+            0,
+        )
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -78,6 +139,7 @@ class OrderItem(Base):
     price = Column(Numeric(10, 2), nullable=False) # Price at the time of order (unit price)
     subtotal = Column(Numeric(10, 2), nullable=False) # quantity * price
     notes = Column(String, nullable=True) # Notes like "sin cebolla"
+    modifiers_snapshot = Column(MODIFIERS_SNAPSHOT_TYPE, nullable=False, default=list)
     
     # Multi-tenancy: Company relationship
     id_empresa = Column(Integer, ForeignKey('companies.id'), nullable=False, index=True)

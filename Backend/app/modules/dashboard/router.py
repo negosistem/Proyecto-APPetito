@@ -26,6 +26,8 @@ def get_dashboard_stats(
     """
     now = datetime.now()
     today_start = datetime.combine(now.date(), time.min)
+    yesterday_start = today_start - timedelta(days=1)
+    yesterday_end = today_start - timedelta(microseconds=1)
     
     # 1. Ventas del día (Sum of total from active orders today) - por empresa
     # Consideramos ventas las ordenes no canceladas
@@ -34,6 +36,20 @@ def get_dashboard_stats(
         Order.status != OrderStatus.CANCELLED,
         Order.id_empresa == current_user.id_empresa
     ).scalar() or 0.0
+    
+    ventas_ayer = db.query(func.sum(Order.total)).filter(
+        Order.created_at >= yesterday_start,
+        Order.created_at <= yesterday_end,
+        Order.status != OrderStatus.CANCELLED,
+        Order.id_empresa == current_user.id_empresa
+    ).scalar() or 0.0
+    
+    if ventas_ayer > 0:
+        ventas_change = ((ventas_result - ventas_ayer) / ventas_ayer) * 100
+    elif ventas_result > 0:
+        ventas_change = 100.0
+    else:
+        ventas_change = 0.0
     
     
     # 2. Pedidos activos (Pendiente, Preparando) - por empresa
@@ -47,6 +63,19 @@ def get_dashboard_stats(
         Order.created_at >= today_start,
         Order.id_empresa == current_user.id_empresa
     ).scalar() or 0
+    
+    clientes_ayer = db.query(func.count(Order.id)).filter(
+        Order.created_at >= yesterday_start,
+        Order.created_at <= yesterday_end,
+        Order.id_empresa == current_user.id_empresa
+    ).scalar() or 0
+    
+    if clientes_ayer > 0:
+        clientes_change = ((clientes_hoy - clientes_ayer) / clientes_ayer) * 100
+    elif clientes_hoy > 0:
+        clientes_change = 100.0
+    else:
+        clientes_change = 0.0
     
     # 4. Mesas ocupadas - por empresa
     mesas_ocupadas_count = db.query(func.count(Table.id)).filter(
@@ -68,8 +97,8 @@ def get_dashboard_stats(
     return {
         "ventas_del_dia": {
             "value": ventas_result,
-            "change": 0, # TODO: Calculate change vs yesterday
-            "formatted": f"${ventas_result:,.2f}"
+            "change": round(ventas_change, 2),
+            "formatted": f"{float(ventas_result):.2f}"
         },
         "pedidos_activos": {
             "value": pedidos_activos,
@@ -78,7 +107,7 @@ def get_dashboard_stats(
         },
         "clientes_hoy": {
             "value": clientes_hoy,
-            "change": 0,
+            "change": round(clientes_change, 2),
             "formatted": str(clientes_hoy)
         },
         "mesas_ocupadas": {
@@ -199,7 +228,7 @@ def get_recent_orders(
              "id": f"#{o.id:04d}",
              "cliente": o.customer_name or "Cliente",
              "mesa": str(mesa),
-             "total": f"${o.total:,.0f}", # Format integer-like
+             "total": f"{float(o.total or 0):.2f}",
              "estado": o.status
         })
     

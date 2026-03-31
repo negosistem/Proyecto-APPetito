@@ -55,7 +55,9 @@ export const apiClient = {
                 return null as T;
             }
 
-            const data = await response.json();
+            const contentType = response.headers.get('content-type') || '';
+            const isJsonResponse = contentType.includes('application/json');
+            const data = isJsonResponse ? await response.json() : await response.text();
 
             if (!response.ok) {
                 console.error('API Error Response:', data); // Log full error details

@@ -1,20 +1,15 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { paymentService, PaymentCreate, Receipt } from '../../payments/services/paymentService';
+import { paymentService, type PaymentCreate } from '../../payments/services/paymentService';
 
 export const usePayment = () => {
     const [isProcessing, setIsProcessing] = useState(false);
-    const [receipt, setReceipt] = useState<Receipt | null>(null);
 
-    const processPayment = async (data: PaymentCreate) => {
+    const processPayment = async (orderId: number, data: PaymentCreate) => {
         setIsProcessing(true);
         try {
-            const payment = await paymentService.processPayment(data);
+            const payment = await paymentService.processPayment(orderId, data);
             toast.success('Pago procesado correctamente');
-
-            // Auto-generate receipt
-            const receiptData = await paymentService.generateReceipt(payment.id);
-            setReceipt(receiptData);
 
             return payment;
         } catch (error: any) {
@@ -38,7 +33,5 @@ export const usePayment = () => {
         processPayment,
         closeTable,
         isProcessing,
-        receipt,
-        setReceipt
     };
 };
